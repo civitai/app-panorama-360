@@ -15,6 +15,10 @@ async function boot(): Promise<void> {
     return;
   }
 
+  // Page app (see block.manifest.json `page{}`): a bare-subdomain top-level load
+  // is handled by the platform edge redirect to /apps/run/panorama-360 — no
+  // in-app <BlockGate> direct-load fallback needed (and <BlockGate> is React;
+  // this app is vanilla).
   registerElements();
   root.appendChild(document.createElement('pano-app'));
 }

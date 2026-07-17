@@ -1,5 +1,7 @@
 # 360° Panorama Studio
 
+> Spun out into its own repo: **[`civitai/app-panorama-360`](https://github.com/civitai/app-panorama-360)**.
+
 A Civitai App (full-page block) that generates **seamless 360° equirectangular
 panoramas** with a customComfy workflow on the Civitai orchestrator and lets you
 stand inside the result with an embedded [Photo Sphere Viewer](https://photo-sphere-viewer.js.org/).
@@ -130,6 +132,13 @@ dev-stack's `.mcp.json` — generations bill **that token owner's account**.
 
 ## Known platform items
 
+- **Direct-load / bare-subdomain top-level**: no in-app guard is needed. This is
+  a **page app** (`page{}` in `block.manifest.json`), so a top-level hit to the
+  bare `panorama-360.civit.ai` is handled by the **platform edge redirect** to
+  the hosted page surface (`/apps/run/panorama-360`). There is no in-app
+  `<BlockGate>` fallback — that is a React component, and this app is vanilla web
+  components (React is only an inert dev dependency); pulling it in would defeat
+  the point. Share the `/apps/run/<slug>` URL, not the bare subdomain.
 - **Bridge kind**: shipping seamless mode embedded on civitai.com requires the
   block bridge (`blocks.submitWorkflow`) to accept a server-owned `pano360`
   kind whose translation is `buildSeamlessTemplate` in `src/panorama.ts`.

@@ -162,6 +162,10 @@ export default defineConfig(({ mode }) => {
         test: {
           name: 'dom',
           environment: 'jsdom',
+          // Give jsdom a real (non-opaque) origin so `window.localStorage`
+          // exists — the default `about:blank` opaque origin has no Storage,
+          // which breaks the layer-AIR cache round-trip tests (nodepack.dom).
+          environmentOptions: { jsdom: { url: 'https://panorama-360.civit.ai/' } },
           include: ['src/**/*.dom.test.ts'],
           setupFiles: ['./src/test-setup.ts'],
         },
