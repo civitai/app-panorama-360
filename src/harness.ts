@@ -74,7 +74,7 @@ function mountApp(root: HTMLElement): void {
 const BANNER_TEXT: Record<HarnessMode, { text: string; color: string }> = {
   mock: { text: 'MOCK HOST · no real Buzz spent', color: '#3fb950' },
   orch: {
-    text: 'ORCHESTRATOR HOST · every mode spends REAL Buzz (SDXL ~30-90 · Z-Image ~15-25)',
+    text: 'ORCHESTRATOR HOST · every mode spends REAL Buzz (~15-180 depending on model)',
     color: '#ffa94d',
   },
   live: { text: 'LIVE HOST · spends REAL Buzz (hosted mode only)', color: '#ff6b6b' },

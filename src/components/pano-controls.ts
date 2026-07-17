@@ -14,11 +14,19 @@ export interface ControlsCheckpoint {
 }
 
 const MODE_NOTES: Record<PanoMode, string> = {
-  seamless: 'Left and right edges wrap perfectly — no visible seam behind you.',
+  seamless:
+    'Truly seamless — the edges are painted as continuations of each other. Any SDXL checkpoint. ~30-90 Buzz.',
   zimage:
-    'Z-Image Turbo — fast and cheap; the wrap seam is healed with an inpaint pass.',
-  hosted: 'Standard generation: expect a visible seam where the edges meet.',
+    'Z-Image Turbo — fastest and cheapest; the wrap seam is healed with an inpaint pass. ~15-25 Buzz.',
+  flux2:
+    'FLUX.2 Klein 9B — strong prompt following; the wrap seam is healed with an inpaint pass. ~30-60 Buzz.',
+  qwen:
+    'Qwen Image (20B) — best prompt adherence, slowest; the wrap seam is healed with an inpaint pass. ~120-180 Buzz.',
+  hosted: 'Standard SDXL generation: expect a visible seam where the edges meet.',
 };
+
+/** Modes that run on an SDXL checkpoint (and can therefore pick one). */
+const SDXL_MODES: ReadonlySet<PanoMode> = new Set(['seamless', 'hosted']);
 
 export class PanoControls extends HTMLElement {
   #busy = false;
@@ -60,7 +68,7 @@ export class PanoControls extends HTMLElement {
     this.#sync();
   }
 
-  /** Whether customComfy modes (seamless/zimage) can run against this host. */
+  /** Whether the customComfy modes (all but Standard) can run against this host. */
   set seamlessAvailable(value: boolean) {
     this.#seamlessAvailable = value;
     if (value && this.#mode === 'hosted') this.#mode = 'seamless';
@@ -124,13 +132,15 @@ export class PanoControls extends HTMLElement {
     seedField.appendChild(this.#seedEl);
 
     const modeField = el('div', 'pn-field');
-    modeField.appendChild(el('span', 'pn-label', 'Mode'));
+    modeField.appendChild(el('span', 'pn-label', 'Model'));
     const modeRow = el('div', 'pn-row');
     modeRow.setAttribute('role', 'radiogroup');
-    modeRow.setAttribute('aria-label', 'Panorama mode');
+    modeRow.setAttribute('aria-label', 'Panorama model');
     const modes: Array<{ mode: PanoMode; label: string }> = [
-      { mode: 'seamless', label: 'Seamless (SDXL)' },
-      { mode: 'zimage', label: 'Fast (Z-Image)' },
+      { mode: 'seamless', label: 'SDXL · Recommended' },
+      { mode: 'zimage', label: 'Z-Image Turbo' },
+      { mode: 'flux2', label: 'Flux2 Klein' },
+      { mode: 'qwen', label: 'Qwen Image' },
       { mode: 'hosted', label: 'Standard' },
     ];
     for (const { mode, label } of modes) {
@@ -153,9 +163,9 @@ export class PanoControls extends HTMLElement {
     this.#modeNote = el('span', 'pn-desc');
     modeField.append(modeRow, this.#modeNote);
 
-    // SDXL model row — hidden in zimage mode (Z-Image has one base model).
+    // SDXL checkpoint row — hidden in the DiT modes (each has one base model).
     this.#modelField = el('div', 'pn-field');
-    this.#modelField.appendChild(el('span', 'pn-label', 'Model'));
+    this.#modelField.appendChild(el('span', 'pn-label', 'Checkpoint'));
     const modelRow = el('div', 'pn-row');
     this.#modelNameEl = el('span', 'pn-desc');
     this.#modelNameEl.dataset.testid = 'pn-model-name';
@@ -219,7 +229,7 @@ export class PanoControls extends HTMLElement {
       ? MODE_NOTES[this.#mode]
       : 'Seamless modes need the customComfy bridge (dev:orch) — this host runs standard generations, which show a seam where the edges meet.';
 
-    this.#modelField.hidden = this.#mode === 'zimage';
+    this.#modelField.hidden = !SDXL_MODES.has(this.#mode);
     this.#modelNameEl.textContent = this.#checkpoint?.name ?? CHECKPOINT_DEFAULT_NAME;
     this.#modelChangeBtn.disabled = this.#busy;
     this.#modelResetBtn.disabled = this.#busy;

@@ -20,10 +20,10 @@ import type { OrchWorkflowDoc } from '@civitai/comfy-run-kit';
 // same 2:1 canvas) whose panorama has a visible seam where the edges meet.
 // ---------------------------------------------------------------------------
 
-export type PanoMode = 'seamless' | 'zimage' | 'hosted';
+export type PanoMode = 'seamless' | 'zimage' | 'flux2' | 'qwen' | 'hosted';
 
 /** Which generation recipe the server-owned translation runs. */
-export type PanoEngine = 'sdxl' | 'zimage-turbo';
+export type PanoEngine = 'sdxl' | 'zimage-turbo' | 'flux2-klein' | 'qwen-image';
 
 /** A picked SDXL checkpoint (from the host's checkpoint picker). */
 export interface PanoCheckpoint {
@@ -39,7 +39,7 @@ export interface PanoBody {
   seed?: number;
   /** Preferred Buzz pool; omitted = host-chosen (Auto). */
   accountType?: BuzzAccountType;
-  /** Recipe: 'sdxl' (conv-wrap seamless, default) or 'zimage-turbo' (fast, seam inpainted). */
+  /** Recipe: 'sdxl' (conv-wrap seamless, default) or a DiT engine (seam inpainted). */
   engine?: PanoEngine;
   /** SDXL checkpoint override (picker result); ignored by the zimage engine. */
   checkpoint?: PanoCheckpoint;
@@ -138,6 +138,65 @@ export const SEAM_STEPS = 8;
 
 export const ZIMAGE_ESTIMATE_BUZZ = 20;
 
+// ---------------------------------------------------------------------------
+// QWEN IMAGE engine — the quality DiT (20B MMDiT, best prompt adherence).
+// Same graph shape as Z-Image (split loaders + KSampler) with ONE exception:
+// the diffusion loader is kjnodes' GGUFLoaderKJ with attention_override sdpa.
+// The fleet launches ComfyUI with --use-sage-attention, and SageAttention
+// silently mishandles the additive attention mask Qwen passes on every block
+// (comfy/ldm/qwen_image calls optimized_attention_masked) — the run "succeeds"
+// but outputs pure noise. sdpa forces pytorch attention for this model only;
+// GGUFLoaderKJ is the only fleet-baked node that exposes the override. The
+// GGUF is the exact file prod textToImage uses for Qwen (warm worker caches)
+// and the 2512 base matches the Feb-2026 LoRA. E2E: fp8-safetensors +
+// UNETLoader under sage = noise (probes 1-2); this loader = clean (probe 3).
+// Sampling mirrors the fleet: AuraFlow shift 3.1, steps 20 / cfg 2.5 /
+// euler / simple — cfg > 1, so the negative prompt works.
+// ---------------------------------------------------------------------------
+
+export const QWEN_DIFFUSION_AIR =
+  'urn:air:qwen:diffusion_model:huggingface:unsloth/Qwen-Image-2512-GGUF@main/qwen-image-2512-Q5_K_M.gguf';
+export const QWEN_CLIP_AIR =
+  'urn:air:qwen:clip:huggingface:Comfy-Org/Qwen-Image_ComfyUI@main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors';
+export const QWEN_VAE_AIR =
+  'urn:air:qwen:vae:huggingface:Comfy-Org/Qwen-Image_ComfyUI@main/split_files/vae/qwen_image_vae.safetensors';
+export const QWEN_LORA_VERSION_ID = 2702222;
+export const QWEN_LORA_AIR = `urn:air:qwen:lora:civitai:${LORA_MODEL_ID}@${QWEN_LORA_VERSION_ID}`;
+export const QWEN_TRIGGER_WORDS = '360 VIEW, 360, ';
+
+export const QWEN_STEPS = 20;
+export const QWEN_CFG = 2.5;
+export const QWEN_SHIFT = 3.1;
+
+export const QWEN_ESTIMATE_BUZZ = 150;
+
+// ---------------------------------------------------------------------------
+// FLUX2 KLEIN 9B engine — BFL's mid-size DiT. Model set is prod's ComfyUI
+// variant ("9b-kv", all safetensors — Flux2KleinImageGenInput.cs), and the
+// graph mirrors the fleet's Flux2KleinKvWorkflowBuilder: CLIPLoader[flux2],
+// FluxKVCache, EmptyFlux2LatentImage, and the custom sampler stack
+// (Flux2Scheduler + CFGGuider + SamplerCustomAdvanced) instead of KSampler.
+// The seam pass gets its partial denoise via SplitSigmasDenoise (low_sigmas).
+// ---------------------------------------------------------------------------
+
+export const FLUX2_DIFFUSION_AIR =
+  'urn:air:flux2:diffusion_model:huggingface:black-forest-labs/FLUX.2-klein-9b-kv-fp8@main/flux-2-klein-9b-kv-fp8.safetensors';
+export const FLUX2_CLIP_AIR =
+  'urn:air:flux2:text_encoders:huggingface:Comfy-Org/vae-text-encorder-for-flux-klein-9b@main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors';
+export const FLUX2_VAE_AIR =
+  'urn:air:flux2:vae:huggingface:Comfy-Org/vae-text-encorder-for-flux-klein-9b@main/split_files/vae/flux2-vae.safetensors';
+export const FLUX2_LORA_VERSION_ID = 2702214;
+export const FLUX2_LORA_AIR = `urn:air:flux2:lora:civitai:${LORA_MODEL_ID}@${FLUX2_LORA_VERSION_ID}`;
+export const FLUX2_LORA_STRENGTH = 1.0;
+export const FLUX2_TRIGGER_WORDS = '360 View, 360, ';
+
+// Distilled Klein runs few-step but with REAL guidance (orchestration E2E uses
+// steps 8 / cfg 5 for the distilled 9b) — the negative prompt is active.
+export const FLUX2_STEPS = 8;
+export const FLUX2_CFG = 5;
+
+export const FLUX2_ESTIMATE_BUZZ = 45;
+
 export interface ScenePreset {
   id: string;
   label: string;
@@ -218,9 +277,13 @@ export function positivePrompt(scene: string): string {
   return TRIGGER_WORDS + clampPrompt(scene) + PROMPT_SUFFIX;
 }
 
-/** Z-Image variant — its LoRA version uses differently-ordered trigger words. */
+/** DiT LoRA variants publish differently-cased/ordered trigger words. */
+export function ditPositivePrompt(triggerWords: string, scene: string): string {
+  return triggerWords + clampPrompt(scene) + PROMPT_SUFFIX;
+}
+
 export function zimagePositivePrompt(scene: string): string {
-  return ZIMAGE_TRIGGER_WORDS + clampPrompt(scene) + PROMPT_SUFFIX;
+  return ditPositivePrompt(ZIMAGE_TRIGGER_WORDS, scene);
 }
 
 // ---------------------------------------------------------------------------
@@ -531,28 +594,98 @@ export const STANDARD_NODE_LABELS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Z-IMAGE TURBO translation — render, then heal the seam.
+// DiT translations — render, then heal the seam.
 //
-// txt2img mirrors the spine workers' own Z-Image graph (split loaders, lumina2
-// text encoder, Flux VAE, AuraFlow shift 3, turbo euler/simple cfg 1). The
-// seam heal: ComfyUI has no image "roll" node, so the 50% roll is 2x ImageCrop
-// + ImageStitch with the halves swapped (an involution — applying it again
-// rolls back). The wrap edge then sits at x=1024, where a feathered band mask
-// + SetLatentNoiseMask + partial-denoise KSampler repaints it in context.
+// DiT models have no UNet convs, so the SeamlessTile wrap trick can't apply.
+// Instead: render normally, roll the image 50% so the wrap edge lands in the
+// center, inpaint a feathered band across it (partial denoise, same model),
+// and roll back. ComfyUI has no image "roll" node, so the 50% roll is
+// 2x ImageCrop + ImageStitch with the halves swapped (an involution — applying
+// it again rolls back).
+//
+// Z-Image Turbo and Qwen Image share one graph shape (split loaders +
+// KSampler), parameterized by DitEngineSpec. Flux2 Klein needs its own graph:
+// the fleet samples it with Flux2Scheduler + CFGGuider + SamplerCustomAdvanced
+// instead of KSampler (buildFlux2SeamlessGraph below).
 // ---------------------------------------------------------------------------
 
-export function buildZimageSeamlessGraph(body: PanoBody): ComfyGraph {
-  const seed = body.seed ?? Math.floor(Math.random() * 2_147_483_647);
-  const half = PANO_WIDTH / 2;
+/** Everything that differs between the KSampler-shaped DiT engines. */
+export interface DitEngineSpec {
+  diffusionAir: string;
+  /** The whole diffusion-loader node — engines differ in loader class too. */
+  loader: { class_type: string; inputs: Record<string, unknown> };
+  clipAir: string;
+  clipType: string;
+  vaeAir: string;
+  loraAir: string;
+  loraStrength: number;
+  triggerWords: string;
+  shift: number;
+  steps: number;
+  cfg: number;
+  /** '' when cfg is 1 (guidance off — the encode is wired but inert). */
+  negativePrompt: string;
+  modelLabel: string;
+}
 
-  const rollNodes = (id: number, image: [string, number]): ComfyGraph => ({
+export const ZIMAGE_SPEC: DitEngineSpec = {
+  diffusionAir: ZIMAGE_DIFFUSION_AIR,
+  loader: {
+    class_type: 'UNETLoader',
+    inputs: { unet_name: ZIMAGE_DIFFUSION_AIR, weight_dtype: 'default' },
+  },
+  clipAir: ZIMAGE_CLIP_AIR,
+  clipType: 'lumina2',
+  vaeAir: ZIMAGE_VAE_AIR,
+  loraAir: ZIMAGE_LORA_AIR,
+  loraStrength: ZIMAGE_LORA_STRENGTH,
+  triggerWords: ZIMAGE_TRIGGER_WORDS,
+  shift: ZIMAGE_SHIFT,
+  steps: ZIMAGE_STEPS,
+  cfg: ZIMAGE_CFG,
+  negativePrompt: '',
+  modelLabel: 'Z-Image Turbo',
+};
+
+export const QWEN_SPEC: DitEngineSpec = {
+  diffusionAir: QWEN_DIFFUSION_AIR,
+  loader: {
+    class_type: 'GGUFLoaderKJ',
+    inputs: {
+      model_name: QWEN_DIFFUSION_AIR,
+      extra_model_name: 'none',
+      dequant_dtype: 'default',
+      patch_dtype: 'default',
+      patch_on_device: false,
+      enable_fp16_accumulation: false,
+      attention_override: 'sdpa',
+    },
+  },
+  clipAir: QWEN_CLIP_AIR,
+  clipType: 'qwen_image',
+  vaeAir: QWEN_VAE_AIR,
+  loraAir: QWEN_LORA_AIR,
+  loraStrength: 1.0,
+  triggerWords: QWEN_TRIGGER_WORDS,
+  shift: QWEN_SHIFT,
+  steps: QWEN_STEPS,
+  cfg: QWEN_CFG,
+  negativePrompt: NEGATIVE_PROMPT,
+  modelLabel: 'Qwen Image',
+};
+
+const HALF_W = PANO_WIDTH / 2;
+
+/** 50% horizontal roll: id: left crop, id+1: right crop, id+2: [R|L] stitch. */
+function rollNodes(id: number, image: [string, number]): ComfyGraph {
+  return {
     [`${id}`]: {
       class_type: 'ImageCrop',
-      inputs: { image, width: half, height: PANO_HEIGHT, x: 0, y: 0 },
+      inputs: { image, width: HALF_W, height: PANO_HEIGHT, x: 0, y: 0 },
     },
     [`${id + 1}`]: {
       class_type: 'ImageCrop',
-      inputs: { image, width: half, height: PANO_HEIGHT, x: half, y: 0 },
+      inputs: { image, width: HALF_W, height: PANO_HEIGHT, x: HALF_W, y: 0 },
     },
     [`${id + 2}`]: {
       class_type: 'ImageStitch',
@@ -565,38 +698,72 @@ export function buildZimageSeamlessGraph(body: PanoBody): ComfyGraph {
         spacing_color: 'white',
       },
     },
-  });
+  };
+}
+
+/** Feathered band mask over the centered seam: ids id..id+3, output at id+3. */
+function bandMaskNodes(id: number): ComfyGraph {
+  return {
+    [`${id}`]: {
+      class_type: 'SolidMask',
+      inputs: { value: 0, width: PANO_WIDTH, height: PANO_HEIGHT },
+    },
+    [`${id + 1}`]: {
+      class_type: 'SolidMask',
+      inputs: { value: 1, width: SEAM_BAND_PX, height: PANO_HEIGHT },
+    },
+    [`${id + 2}`]: {
+      class_type: 'MaskComposite',
+      inputs: {
+        destination: [`${id}`, 0],
+        source: [`${id + 1}`, 0],
+        x: (PANO_WIDTH - SEAM_BAND_PX) / 2,
+        y: 0,
+        operation: 'add',
+      },
+    },
+    [`${id + 3}`]: {
+      class_type: 'FeatherMask',
+      inputs: {
+        mask: [`${id + 2}`, 0],
+        left: SEAM_FEATHER_PX,
+        top: 0,
+        right: SEAM_FEATHER_PX,
+        bottom: 0,
+      },
+    },
+  };
+}
+
+export function buildDitSeamlessGraph(spec: DitEngineSpec, body: PanoBody): ComfyGraph {
+  const seed = body.seed ?? Math.floor(Math.random() * 2_147_483_647);
 
   return {
     // txt2img
-    '1': {
-      class_type: 'UNETLoader',
-      inputs: { unet_name: ZIMAGE_DIFFUSION_AIR, weight_dtype: 'default' },
-    },
+    '1': spec.loader,
     '2': {
       class_type: 'LoraLoaderModelOnly',
-      inputs: { model: ['1', 0], lora_name: ZIMAGE_LORA_AIR, strength_model: ZIMAGE_LORA_STRENGTH },
+      inputs: { model: ['1', 0], lora_name: spec.loraAir, strength_model: spec.loraStrength },
     },
     '3': {
       class_type: 'ModelSamplingAuraFlow',
-      inputs: { model: ['2', 0], shift: ZIMAGE_SHIFT },
+      inputs: { model: ['2', 0], shift: spec.shift },
     },
     '4': {
       class_type: 'CLIPLoader',
-      inputs: { clip_name: ZIMAGE_CLIP_AIR, type: 'lumina2', device: 'default' },
+      inputs: { clip_name: spec.clipAir, type: spec.clipType, device: 'default' },
     },
     '5': {
       class_type: 'CLIPTextEncode',
-      inputs: { clip: ['4', 0], text: zimagePositivePrompt(body.prompt) },
+      inputs: { clip: ['4', 0], text: ditPositivePrompt(spec.triggerWords, body.prompt) },
     },
-    // Wired but inert at cfg 1 (turbo runs without guidance).
     '6': {
       class_type: 'CLIPTextEncode',
-      inputs: { clip: ['4', 0], text: '' },
+      inputs: { clip: ['4', 0], text: spec.negativePrompt },
     },
     '7': {
       class_type: 'VAELoader',
-      inputs: { vae_name: ZIMAGE_VAE_AIR },
+      inputs: { vae_name: spec.vaeAir },
     },
     '8': {
       class_type: 'EmptySD3LatentImage',
@@ -610,8 +777,8 @@ export function buildZimageSeamlessGraph(body: PanoBody): ComfyGraph {
         negative: ['6', 0],
         latent_image: ['8', 0],
         seed,
-        steps: ZIMAGE_STEPS,
-        cfg: ZIMAGE_CFG,
+        steps: spec.steps,
+        cfg: spec.cfg,
         sampler_name: ZIMAGE_SAMPLER,
         scheduler: ZIMAGE_SCHEDULER,
         denoise: 1.0,
@@ -623,29 +790,8 @@ export function buildZimageSeamlessGraph(body: PanoBody): ComfyGraph {
     },
     // roll 50% — wrap edge to center (11: left, 12: right, 13: [R|L])
     ...rollNodes(11, ['10', 0]),
-    // feathered band mask over the centered seam
-    '14': {
-      class_type: 'SolidMask',
-      inputs: { value: 0, width: PANO_WIDTH, height: PANO_HEIGHT },
-    },
-    '15': {
-      class_type: 'SolidMask',
-      inputs: { value: 1, width: SEAM_BAND_PX, height: PANO_HEIGHT },
-    },
-    '16': {
-      class_type: 'MaskComposite',
-      inputs: {
-        destination: ['14', 0],
-        source: ['15', 0],
-        x: (PANO_WIDTH - SEAM_BAND_PX) / 2,
-        y: 0,
-        operation: 'add',
-      },
-    },
-    '17': {
-      class_type: 'FeatherMask',
-      inputs: { mask: ['16', 0], left: SEAM_FEATHER_PX, top: 0, right: SEAM_FEATHER_PX, bottom: 0 },
-    },
+    // feathered band mask over the centered seam (14-17)
+    ...bandMaskNodes(14),
     // inpaint the band in context (partial denoise, same model)
     '18': {
       class_type: 'VAEEncode',
@@ -664,7 +810,7 @@ export function buildZimageSeamlessGraph(body: PanoBody): ComfyGraph {
         latent_image: ['19', 0],
         seed: seed + 1,
         steps: SEAM_STEPS,
-        cfg: ZIMAGE_CFG,
+        cfg: spec.cfg,
         sampler_name: ZIMAGE_SAMPLER,
         scheduler: ZIMAGE_SCHEDULER,
         denoise: SEAM_DENOISE,
@@ -683,53 +829,239 @@ export function buildZimageSeamlessGraph(body: PanoBody): ComfyGraph {
   };
 }
 
+export function buildZimageSeamlessGraph(body: PanoBody): ComfyGraph {
+  return buildDitSeamlessGraph(ZIMAGE_SPEC, body);
+}
+
+export function buildQwenSeamlessGraph(body: PanoBody): ComfyGraph {
+  return buildDitSeamlessGraph(QWEN_SPEC, body);
+}
+
 /**
- * The Z-Image Turbo orchestrator template: ONE customComfy step — the recipe
- * uses only stock ComfyUI nodes, so there is no nodepack snapshot step and no
+ * Flux2 Klein 9B graph — same recipe, fleet sampler stack. Partial denoise for
+ * the seam pass comes from SplitSigmasDenoise's low_sigmas output (output 1):
+ * SamplerCustomAdvanced scales its noise to the first sigma it's given, which
+ * is exactly how KSampler's denoise<1 behaves. The CFGGuider and sampler
+ * select are shared between both passes.
+ */
+export function buildFlux2SeamlessGraph(body: PanoBody): ComfyGraph {
+  const seed = body.seed ?? Math.floor(Math.random() * 2_147_483_647);
+
+  return {
+    // txt2img
+    '1': {
+      class_type: 'UNETLoader',
+      inputs: { unet_name: FLUX2_DIFFUSION_AIR, weight_dtype: 'default' },
+    },
+    '2': {
+      class_type: 'LoraLoaderModelOnly',
+      inputs: { model: ['1', 0], lora_name: FLUX2_LORA_AIR, strength_model: FLUX2_LORA_STRENGTH },
+    },
+    '3': {
+      class_type: 'CLIPLoader',
+      inputs: { clip_name: FLUX2_CLIP_AIR, type: 'flux2', device: 'default' },
+    },
+    '4': {
+      class_type: 'CLIPTextEncode',
+      inputs: { clip: ['3', 0], text: ditPositivePrompt(FLUX2_TRIGGER_WORDS, body.prompt) },
+    },
+    '5': {
+      class_type: 'CLIPTextEncode',
+      inputs: { clip: ['3', 0], text: NEGATIVE_PROMPT },
+    },
+    '6': {
+      class_type: 'VAELoader',
+      inputs: { vae_name: FLUX2_VAE_AIR },
+    },
+    '7': {
+      class_type: 'EmptyFlux2LatentImage',
+      inputs: { width: PANO_WIDTH, height: PANO_HEIGHT, batch_size: 1 },
+    },
+    '8': {
+      class_type: 'Flux2Scheduler',
+      inputs: { steps: FLUX2_STEPS, width: PANO_WIDTH, height: PANO_HEIGHT },
+    },
+    '9': {
+      class_type: 'CFGGuider',
+      inputs: { model: ['2', 0], positive: ['4', 0], negative: ['5', 0], cfg: FLUX2_CFG },
+    },
+    '10': {
+      class_type: 'RandomNoise',
+      inputs: { noise_seed: seed },
+    },
+    '11': {
+      class_type: 'KSamplerSelect',
+      inputs: { sampler_name: ZIMAGE_SAMPLER },
+    },
+    '12': {
+      class_type: 'SamplerCustomAdvanced',
+      inputs: {
+        noise: ['10', 0],
+        guider: ['9', 0],
+        sampler: ['11', 0],
+        sigmas: ['8', 0],
+        latent_image: ['7', 0],
+      },
+    },
+    '13': {
+      class_type: 'VAEDecode',
+      inputs: { samples: ['12', 0], vae: ['6', 0] },
+    },
+    // roll 50% — wrap edge to center (14: left, 15: right, 16: [R|L])
+    ...rollNodes(14, ['13', 0]),
+    // feathered band mask over the centered seam (17-20)
+    ...bandMaskNodes(17),
+    // inpaint the band in context (partial denoise via low_sigmas)
+    '21': {
+      class_type: 'VAEEncode',
+      inputs: { pixels: ['16', 0], vae: ['6', 0] },
+    },
+    '22': {
+      class_type: 'SetLatentNoiseMask',
+      inputs: { samples: ['21', 0], mask: ['20', 0] },
+    },
+    '23': {
+      class_type: 'Flux2Scheduler',
+      inputs: { steps: SEAM_STEPS, width: PANO_WIDTH, height: PANO_HEIGHT },
+    },
+    '24': {
+      class_type: 'SplitSigmasDenoise',
+      inputs: { sigmas: ['23', 0], denoise: SEAM_DENOISE },
+    },
+    '25': {
+      class_type: 'RandomNoise',
+      inputs: { noise_seed: seed + 1 },
+    },
+    '26': {
+      class_type: 'SamplerCustomAdvanced',
+      inputs: {
+        noise: ['25', 0],
+        guider: ['9', 0],
+        sampler: ['11', 0],
+        sigmas: ['24', 1],
+        latent_image: ['22', 0],
+      },
+    },
+    '27': {
+      class_type: 'VAEDecode',
+      inputs: { samples: ['26', 0], vae: ['6', 0] },
+    },
+    // roll back (28: left, 29: right, 30: [R|L] — the involution restores order)
+    ...rollNodes(28, ['27', 0]),
+    '31': {
+      class_type: 'SaveImage',
+      inputs: { images: ['30', 0], filename_prefix: 'panorama' },
+    },
+  };
+}
+
+/** A non-SDXL engine — everything that submits as a single stock-node step. */
+export type DitEngine = Exclude<PanoEngine, 'sdxl'>;
+
+/**
+ * The DiT orchestrator template: ONE customComfy step — the recipes use only
+ * stock ComfyUI nodes, so there is no nodepack snapshot step and no
  * install-layer cache to manage.
  */
-export function buildZimageSeamlessTemplate(body: PanoBody): Record<string, unknown> {
+export function buildDitSeamlessTemplate(
+  engine: DitEngine,
+  body: PanoBody,
+): Record<string, unknown> {
+  const [resources, workflow] =
+    engine === 'flux2-klein'
+      ? [
+          [FLUX2_DIFFUSION_AIR, FLUX2_CLIP_AIR, FLUX2_VAE_AIR, FLUX2_LORA_AIR],
+          buildFlux2SeamlessGraph(body),
+        ]
+      : engine === 'qwen-image'
+        ? [
+            [QWEN_DIFFUSION_AIR, QWEN_CLIP_AIR, QWEN_VAE_AIR, QWEN_LORA_AIR],
+            buildQwenSeamlessGraph(body),
+          ]
+        : [
+            [ZIMAGE_DIFFUSION_AIR, ZIMAGE_CLIP_AIR, ZIMAGE_VAE_AIR, ZIMAGE_LORA_AIR],
+            buildZimageSeamlessGraph(body),
+          ];
   return {
     steps: [
       {
         $type: 'customComfy',
         name: GEN_STEP_NAME,
         timeout: '01:00:00',
-        input: {
-          resources: [ZIMAGE_DIFFUSION_AIR, ZIMAGE_CLIP_AIR, ZIMAGE_VAE_AIR, ZIMAGE_LORA_AIR],
-          trace: 'binary',
-          workflow: buildZimageSeamlessGraph(body),
-        },
+        input: { resources, trace: 'binary', workflow },
       },
     ],
   };
 }
 
-export const ZIMAGE_NODE_LABELS: Record<string, string> = {
-  '1': 'Loading Z-Image Turbo',
+export function buildZimageSeamlessTemplate(body: PanoBody): Record<string, unknown> {
+  return buildDitSeamlessTemplate('zimage-turbo', body);
+}
+
+function ditNodeLabels(modelLabel: string): Record<string, string> {
+  return {
+    '1': `Loading ${modelLabel}`,
+    '2': 'Applying 360 LoRA',
+    '3': 'Tuning the sampler',
+    '4': 'Loading text encoder',
+    '5': 'Encoding prompt',
+    '7': 'Loading VAE',
+    '8': 'Preparing canvas',
+    '9': 'Sampling',
+    '10': 'Decoding image',
+    '11': 'Centering the seam',
+    '12': 'Centering the seam',
+    '13': 'Centering the seam',
+    '14': 'Masking the seam',
+    '15': 'Masking the seam',
+    '16': 'Masking the seam',
+    '17': 'Masking the seam',
+    '18': 'Encoding for seam heal',
+    '19': 'Masking the seam',
+    '20': 'Healing the seam',
+    '21': 'Decoding healed image',
+    '22': 'Restoring the wrap',
+    '23': 'Restoring the wrap',
+    '24': 'Restoring the wrap',
+    '25': 'Saving panorama',
+  };
+}
+
+export const ZIMAGE_NODE_LABELS = ditNodeLabels('Z-Image Turbo');
+export const QWEN_NODE_LABELS = ditNodeLabels('Qwen Image');
+
+export const FLUX2_NODE_LABELS: Record<string, string> = {
+  '1': 'Loading Flux2 Klein',
   '2': 'Applying 360 LoRA',
-  '3': 'Tuning the sampler',
-  '4': 'Loading text encoder',
-  '5': 'Encoding prompt',
-  '7': 'Loading VAE',
-  '8': 'Preparing canvas',
-  '9': 'Sampling',
-  '10': 'Decoding image',
-  '11': 'Centering the seam',
-  '12': 'Centering the seam',
-  '13': 'Centering the seam',
-  '14': 'Masking the seam',
-  '15': 'Masking the seam',
-  '16': 'Masking the seam',
+  '3': 'Loading text encoder',
+  '4': 'Encoding prompt',
+  '5': 'Encoding negative prompt',
+  '6': 'Loading VAE',
+  '7': 'Preparing canvas',
+  '8': 'Tuning the sampler',
+  '9': 'Tuning the sampler',
+  '10': 'Tuning the sampler',
+  '11': 'Tuning the sampler',
+  '12': 'Sampling',
+  '13': 'Decoding image',
+  '14': 'Centering the seam',
+  '15': 'Centering the seam',
+  '16': 'Centering the seam',
   '17': 'Masking the seam',
-  '18': 'Encoding for seam heal',
+  '18': 'Masking the seam',
   '19': 'Masking the seam',
-  '20': 'Healing the seam',
-  '21': 'Decoding healed image',
-  '22': 'Restoring the wrap',
-  '23': 'Restoring the wrap',
-  '24': 'Restoring the wrap',
-  '25': 'Saving panorama',
+  '20': 'Masking the seam',
+  '21': 'Encoding for seam heal',
+  '22': 'Masking the seam',
+  '23': 'Tuning the sampler',
+  '24': 'Tuning the sampler',
+  '25': 'Tuning the sampler',
+  '26': 'Healing the seam',
+  '27': 'Decoding healed image',
+  '28': 'Restoring the wrap',
+  '29': 'Restoring the wrap',
+  '30': 'Restoring the wrap',
+  '31': 'Saving panorama',
 };
 
 // ---------------------------------------------------------------------------

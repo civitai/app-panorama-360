@@ -9,14 +9,19 @@ import { RunController, type RunGateway, type RunState } from '@civitai/comfy-ru
 
 import { phaseForError, type GenPhase } from './generation.js';
 import {
+  FLUX2_ESTIMATE_BUZZ,
+  FLUX2_NODE_LABELS,
   PANORAMA_ESTIMATE_BUZZ,
   PANO_NODE_LABELS,
+  QWEN_ESTIMATE_BUZZ,
+  QWEN_NODE_LABELS,
   STANDARD_NODE_LABELS,
   ZIMAGE_ESTIMATE_BUZZ,
   ZIMAGE_NODE_LABELS,
   buildHostedBody,
   buildPanoBody,
   type PanoCheckpoint,
+  type PanoEngine,
   type PanoMode,
 } from './panorama.js';
 
@@ -24,7 +29,25 @@ import {
 export const MODE_ESTIMATE_BUZZ: Record<PanoMode, number> = {
   seamless: PANORAMA_ESTIMATE_BUZZ,
   zimage: ZIMAGE_ESTIMATE_BUZZ,
+  flux2: FLUX2_ESTIMATE_BUZZ,
+  qwen: QWEN_ESTIMATE_BUZZ,
   hosted: PANORAMA_ESTIMATE_BUZZ,
+};
+
+/** Which server-side recipe each customComfy mode translates to. */
+export const MODE_ENGINE: Record<Exclude<PanoMode, 'hosted'>, PanoEngine> = {
+  seamless: 'sdxl',
+  zimage: 'zimage-turbo',
+  flux2: 'flux2-klein',
+  qwen: 'qwen-image',
+};
+
+const MODE_NODE_LABELS: Record<PanoMode, Record<string, string>> = {
+  seamless: PANO_NODE_LABELS,
+  zimage: ZIMAGE_NODE_LABELS,
+  flux2: FLUX2_NODE_LABELS,
+  qwen: QWEN_NODE_LABELS,
+  hosted: STANDARD_NODE_LABELS,
 };
 
 /** What the controller needs from the host bridge. */
@@ -39,7 +62,7 @@ export interface PanoRequest {
   seed?: number;
   mode: PanoMode;
   accountType?: BuzzAccountType;
-  /** SDXL checkpoint override (picker result); ignored in zimage mode. */
+  /** SDXL checkpoint override (picker result); ignored by the DiT modes. */
   checkpoint?: PanoCheckpoint;
 }
 
@@ -121,7 +144,7 @@ export class GenerationController {
       req.mode === 'hosted'
         ? buildHostedBody(req.prompt, req.seed, req.accountType, req.checkpoint)
         : (buildPanoBody(req.prompt, req.seed, req.accountType, {
-            engine: req.mode === 'zimage' ? 'zimage-turbo' : 'sdxl',
+            engine: MODE_ENGINE[req.mode],
             ...(req.checkpoint !== undefined && { checkpoint: req.checkpoint }),
           }) as unknown as WorkflowBody);
 
@@ -144,9 +167,7 @@ export class GenerationController {
     this.set({ phase: 'submitting' });
     const run = new RunController({
       gateway: this.bridge.gateway,
-      ...(req.mode === 'seamless' && { nodeLabels: PANO_NODE_LABELS }),
-      ...(req.mode === 'zimage' && { nodeLabels: ZIMAGE_NODE_LABELS }),
-      ...(req.mode === 'hosted' && { nodeLabels: STANDARD_NODE_LABELS }),
+      nodeLabels: MODE_NODE_LABELS[req.mode],
     });
     this.run = run;
     this.runUnsubscribe = run.subscribe((runState) => this.onRunState(runState));

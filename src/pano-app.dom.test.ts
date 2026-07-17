@@ -274,6 +274,34 @@ describe('<pano-app>', () => {
     expect(submitted[0]).not.toHaveProperty('checkpoint');
   });
 
+  it('offers all five model chips; flux2/qwen hide the checkpoint row and submit their engines', async () => {
+    const { session, submitted } = makeSession();
+    const app = mountApp(session);
+    await flush();
+
+    for (const mode of ['seamless', 'zimage', 'flux2', 'qwen', 'hosted']) {
+      expect(app.querySelector(`[data-testid=pn-mode-${mode}]`)).toBeTruthy();
+    }
+    const checkpointRow = app.querySelector('[data-testid=pn-model-name]')?.parentElement
+      ?.parentElement as HTMLElement;
+
+    (app.querySelector('[data-testid=pn-mode-flux2]') as HTMLButtonElement).click();
+    expect(checkpointRow.hidden).toBe(true);
+    (app.querySelector('[data-testid=pn-preset-alpine]') as HTMLButtonElement).click();
+    (app.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
+    await flush();
+    expect(submitted[0]).toMatchObject({ kind: 'pano360', engine: 'flux2-klein' });
+
+    (app.querySelector('[data-testid=pn-mode-qwen]') as HTMLButtonElement).click();
+    expect(checkpointRow.hidden).toBe(true);
+    (app.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
+    await flush();
+    expect(submitted[1]).toMatchObject({ kind: 'pano360', engine: 'qwen-image' });
+
+    (app.querySelector('[data-testid=pn-mode-seamless]') as HTMLButtonElement).click();
+    expect(checkpointRow.hidden).toBe(false);
+  });
+
   it('the run card cancel button interrupts the run server-side', async () => {
     const processing: GatewayResult = {
       snapshot: { workflowId: 'wf_1', status: 'processing' },

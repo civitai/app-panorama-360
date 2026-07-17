@@ -46,18 +46,21 @@
 import { mapDocToDetail, type RunDetail } from '@civitai/comfy-run-kit';
 
 import {
+  FLUX2_ESTIMATE_BUZZ,
   GEN_STEP_NAME,
   PANORAMA_ESTIMATE_BUZZ,
+  QWEN_ESTIMATE_BUZZ,
   ZIMAGE_ESTIMATE_BUZZ,
+  buildDitSeamlessTemplate,
   buildSeamlessTemplate,
   buildStandardTemplate,
-  buildZimageSeamlessTemplate,
   extractLayerAir,
   isHostedBody,
   mapWorkflowToSnapshot,
   type HostedBodyLike,
   type OrchestratorWorkflowDoc,
   type PanoBody,
+  type PanoEngine,
 } from './panorama.js';
 import { clearCachedLayerAir, getCachedLayerAir, setCachedLayerAir } from './nodepack.js';
 
@@ -171,17 +174,17 @@ async function submitSdxl(body: PanoBody): Promise<OrchestratorWorkflowDoc> {
 
 async function handleSubmit(requestId: string, body: PanoBody | HostedBodyLike): Promise<void> {
   try {
-    // zimage-turbo and standard are all stock nodes: single step, no nodepack
-    // layer to manage. Only the SDXL wrap needs the layer-cache dance.
+    // The DiT engines and standard are all stock nodes: single step, no
+    // nodepack layer to manage. Only the SDXL wrap needs the layer-cache dance.
     const doc = isHostedBody(body)
       ? await orchFetch(ORCH_BASE, {
           method: 'POST',
           body: JSON.stringify(buildStandardTemplate(body)),
         })
-      : body.engine === 'zimage-turbo'
+      : body.engine !== undefined && body.engine !== 'sdxl'
         ? await orchFetch(ORCH_BASE, {
             method: 'POST',
-            body: JSON.stringify(buildZimageSeamlessTemplate(body)),
+            body: JSON.stringify(buildDitSeamlessTemplate(body.engine, body)),
           })
         : await submitSdxl(body);
     if (doc.id) orchWorkflowIds.add(doc.id);
@@ -258,13 +261,19 @@ async function handleCancel(requestId: string, workflowId: string): Promise<void
   }
 }
 
+const ENGINE_ESTIMATE_BUZZ: Record<PanoEngine, number> = {
+  sdxl: PANORAMA_ESTIMATE_BUZZ,
+  'zimage-turbo': ZIMAGE_ESTIMATE_BUZZ,
+  'flux2-klein': FLUX2_ESTIMATE_BUZZ,
+  'qwen-image': QWEN_ESTIMATE_BUZZ,
+};
+
 function handleEstimate(requestId: string, body: PanoBody | HostedBodyLike): void {
   // customComfy bills post-paid (1 Buzz per GPU-second) — there is no exact
   // pre-price. Report the tuned per-engine approximation the button shows.
-  const total =
-    !isHostedBody(body) && body.engine === 'zimage-turbo'
-      ? ZIMAGE_ESTIMATE_BUZZ
-      : PANORAMA_ESTIMATE_BUZZ;
+  const total = isHostedBody(body)
+    ? PANORAMA_ESTIMATE_BUZZ
+    : ENGINE_ESTIMATE_BUZZ[body.engine ?? 'sdxl'];
   dispatchToBlock({
     type: 'ESTIMATE_RESULT',
     payload: {

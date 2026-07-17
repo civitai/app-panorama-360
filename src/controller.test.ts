@@ -115,6 +115,20 @@ describe('GenerationController', () => {
     });
   });
 
+  it('flux2 and qwen modes submit their DiT engines (checkpoint dropped)', async () => {
+    const bridge = makeBridge();
+    const controller = new GenerationController(bridge);
+    const checkpoint = { modelId: 112902, versionId: 126688 };
+
+    await controller.generate({ prompt: 'a lake', mode: 'flux2', checkpoint });
+    await controller.generate({ prompt: 'a lake', mode: 'qwen', checkpoint });
+
+    expect(bridge.submitted[0]).toMatchObject({ kind: 'pano360', engine: 'flux2-klein' });
+    expect(bridge.submitted[0]).not.toHaveProperty('checkpoint');
+    expect(bridge.submitted[1]).toMatchObject({ kind: 'pano360', engine: 'qwen-image' });
+    expect(bridge.submitted[1]).not.toHaveProperty('checkpoint');
+  });
+
   it('exposes the kit run state (progress detail) and streams urls on the schedule', async () => {
     let calls = 0;
     const bridge = makeBridge({

@@ -20,13 +20,29 @@ import {
   SEAM_FEATHER_PX,
   SNAPSHOT_STEP_NAME,
   TRIGGER_WORDS,
+  FLUX2_CFG,
+  FLUX2_CLIP_AIR,
+  FLUX2_DIFFUSION_AIR,
+  FLUX2_LORA_AIR,
+  FLUX2_STEPS,
+  FLUX2_TRIGGER_WORDS,
+  FLUX2_VAE_AIR,
+  QWEN_CLIP_AIR,
+  QWEN_DIFFUSION_AIR,
+  QWEN_LORA_AIR,
+  QWEN_TRIGGER_WORDS,
+  QWEN_VAE_AIR,
+  SEAM_STEPS,
   ZIMAGE_CLIP_AIR,
   ZIMAGE_DIFFUSION_AIR,
   ZIMAGE_LORA_AIR,
   ZIMAGE_TRIGGER_WORDS,
   ZIMAGE_VAE_AIR,
+  buildDitSeamlessTemplate,
+  buildFlux2SeamlessGraph,
   buildHostedBody,
   buildPanoBody,
+  buildQwenSeamlessGraph,
   buildSeamlessGraph,
   buildSeamlessTemplate,
   buildStandardTemplate,
@@ -310,6 +326,164 @@ describe('buildZimageSeamlessTemplate', () => {
       ZIMAGE_CLIP_AIR,
       ZIMAGE_VAE_AIR,
       ZIMAGE_LORA_AIR,
+    ]);
+  });
+});
+
+describe('buildQwenSeamlessGraph', () => {
+  const graph = buildQwenSeamlessGraph(
+    buildPanoBody('an icy lake', 42, undefined, { engine: 'qwen-image' }),
+  );
+
+  it('loads the prod-warm 2512 GGUF with the sdpa attention override (sage breaks qwen)', () => {
+    expect(graph['1'].class_type).toBe('GGUFLoaderKJ');
+    expect(graph['1'].inputs).toMatchObject({
+      model_name: QWEN_DIFFUSION_AIR,
+      attention_override: 'sdpa',
+    });
+    expect(graph['2'].inputs.lora_name).toBe(QWEN_LORA_AIR);
+    expect(graph['3'].inputs).toMatchObject({ shift: 3.1 });
+    expect(graph['4'].inputs).toMatchObject({ clip_name: QWEN_CLIP_AIR, type: 'qwen_image' });
+    expect(graph['7'].inputs.vae_name).toBe(QWEN_VAE_AIR);
+  });
+
+  it('quality sampling: 20 steps, cfg 2.5, ACTIVE negative prompt', () => {
+    expect(graph['9'].inputs).toMatchObject({
+      seed: 42,
+      steps: 20,
+      cfg: 2.5,
+      sampler_name: 'euler',
+      scheduler: 'simple',
+    });
+    expect(graph['5'].inputs.text).toBe(
+      QWEN_TRIGGER_WORDS + 'an icy lake' + ', ultra detailed, masterpiece, best quality',
+    );
+    expect(graph['6'].inputs.text).toBe(NEGATIVE_PROMPT);
+    expect(graph['20'].inputs).toMatchObject({ cfg: 2.5, denoise: SEAM_DENOISE, seed: 43 });
+  });
+
+  it('shares the exact roll/mask/heal node shape with the Z-Image graph (loader aside)', () => {
+    const zimage = buildZimageSeamlessGraph(
+      buildPanoBody('an icy lake', 42, undefined, { engine: 'zimage-turbo' }),
+    );
+    expect(Object.keys(graph)).toEqual(Object.keys(zimage));
+    for (const id of Object.keys(graph)) {
+      if (id === '1') continue;
+      expect(graph[id].class_type).toBe(zimage[id].class_type);
+    }
+  });
+});
+
+describe('buildFlux2SeamlessGraph', () => {
+  const graph = buildFlux2SeamlessGraph(
+    buildPanoBody('an icy lake', 42, undefined, { engine: 'flux2-klein' }),
+  );
+
+  it('loads the prod 9b-kv model set with the flux2 clip type', () => {
+    expect(graph['1']).toEqual({
+      class_type: 'UNETLoader',
+      inputs: { unet_name: FLUX2_DIFFUSION_AIR, weight_dtype: 'default' },
+    });
+    expect(graph['2'].inputs.lora_name).toBe(FLUX2_LORA_AIR);
+    expect(graph['3'].inputs).toMatchObject({ clip_name: FLUX2_CLIP_AIR, type: 'flux2' });
+    expect(graph['6'].inputs.vae_name).toBe(FLUX2_VAE_AIR);
+    expect(graph['7'].class_type).toBe('EmptyFlux2LatentImage');
+    expect(graph['4'].inputs.text).toBe(
+      FLUX2_TRIGGER_WORDS + 'an icy lake' + ', ultra detailed, masterpiece, best quality',
+    );
+    expect(graph['5'].inputs.text).toBe(NEGATIVE_PROMPT);
+  });
+
+  it('samples with the fleet stack: Flux2Scheduler + CFGGuider + SamplerCustomAdvanced', () => {
+    expect(graph['8']).toEqual({
+      class_type: 'Flux2Scheduler',
+      inputs: { steps: FLUX2_STEPS, width: PANO_WIDTH, height: PANO_HEIGHT },
+    });
+    expect(graph['9']).toEqual({
+      class_type: 'CFGGuider',
+      inputs: { model: ['2', 0], positive: ['4', 0], negative: ['5', 0], cfg: FLUX2_CFG },
+    });
+    expect(graph['10'].inputs.noise_seed).toBe(42);
+    expect(graph['12']).toEqual({
+      class_type: 'SamplerCustomAdvanced',
+      inputs: {
+        noise: ['10', 0],
+        guider: ['9', 0],
+        sampler: ['11', 0],
+        sigmas: ['8', 0],
+        latent_image: ['7', 0],
+      },
+    });
+    expect(graph['13'].inputs).toEqual({ samples: ['12', 0], vae: ['6', 0] });
+  });
+
+  it('seam pass takes its partial denoise from SplitSigmasDenoise low_sigmas', () => {
+    expect(graph['23'].inputs).toMatchObject({ steps: SEAM_STEPS });
+    expect(graph['24']).toEqual({
+      class_type: 'SplitSigmasDenoise',
+      inputs: { sigmas: ['23', 0], denoise: SEAM_DENOISE },
+    });
+    expect(graph['25'].inputs.noise_seed).toBe(43);
+    expect(graph['26'].inputs).toEqual({
+      noise: ['25', 0],
+      guider: ['9', 0], // shared with the base pass
+      sampler: ['11', 0],
+      sigmas: ['24', 1], // low_sigmas
+      latent_image: ['22', 0],
+    });
+  });
+
+  it('rolls, masks, heals, rolls back, and saves', () => {
+    const half = PANO_WIDTH / 2;
+    expect(graph['14'].inputs).toMatchObject({ image: ['13', 0], x: 0, width: half });
+    expect(graph['15'].inputs).toMatchObject({ image: ['13', 0], x: half, width: half });
+    expect(graph['16'].inputs.image1).toEqual(['15', 0]);
+    expect(graph['17'].inputs).toMatchObject({ value: 0, width: PANO_WIDTH });
+    expect(graph['19'].inputs).toMatchObject({ x: (PANO_WIDTH - SEAM_BAND_PX) / 2 });
+    expect(graph['20'].inputs).toMatchObject({ left: SEAM_FEATHER_PX, right: SEAM_FEATHER_PX });
+    expect(graph['21'].inputs).toEqual({ pixels: ['16', 0], vae: ['6', 0] });
+    expect(graph['22'].inputs).toEqual({ samples: ['21', 0], mask: ['20', 0] });
+    expect(graph['28'].inputs.image).toEqual(['27', 0]);
+    expect(graph['30'].inputs.image1).toEqual(['29', 0]);
+    expect(graph['31']).toMatchObject({
+      class_type: 'SaveImage',
+      inputs: { images: ['30', 0] },
+    });
+  });
+});
+
+describe('buildDitSeamlessTemplate', () => {
+  it('qwen-image: single stock-node step with the four Qwen AIRs', () => {
+    const steps = stepsOf(
+      buildDitSeamlessTemplate(
+        'qwen-image',
+        buildPanoBody('a lake', 1, undefined, { engine: 'qwen-image' }),
+      ),
+    );
+    expect(steps).toHaveLength(1);
+    expect(steps[0].input.trace).toBe('binary');
+    expect(steps[0].input.resources).toEqual([
+      QWEN_DIFFUSION_AIR,
+      QWEN_CLIP_AIR,
+      QWEN_VAE_AIR,
+      QWEN_LORA_AIR,
+    ]);
+  });
+
+  it('flux2-klein: single stock-node step with the four Klein AIRs', () => {
+    const steps = stepsOf(
+      buildDitSeamlessTemplate(
+        'flux2-klein',
+        buildPanoBody('a lake', 1, undefined, { engine: 'flux2-klein' }),
+      ),
+    );
+    expect(steps).toHaveLength(1);
+    expect(steps[0].input.trace).toBe('binary');
+    expect(steps[0].input.resources).toEqual([
+      FLUX2_DIFFUSION_AIR,
+      FLUX2_CLIP_AIR,
+      FLUX2_VAE_AIR,
+      FLUX2_LORA_AIR,
     ]);
   });
 });

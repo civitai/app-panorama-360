@@ -212,7 +212,7 @@ export class PanoApp extends HTMLElement {
       return;
     }
     request.mode = this.#controls.mode;
-    if (this.#checkpoint && request.mode !== 'zimage') {
+    if (this.#checkpoint && (request.mode === 'seamless' || request.mode === 'hosted')) {
       request.checkpoint = { modelId: this.#checkpoint.modelId, versionId: this.#checkpoint.versionId };
     }
     if (!session.canGenerate()) {
