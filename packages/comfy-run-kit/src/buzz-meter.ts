@@ -1,17 +1,14 @@
-// The live "buzz spent so far" meter for post-paid steps. Pure math, no
-// timers: the caller ticks it. Pattern proven by comfy-cloud/comfy-nodes —
-// pin the rate from the first `output.usage` seen, anchor the clock on the
-// best available billing-start evidence, extrapolate `ceil(rate × elapsed)`
-// locally between polls, never display less than the last server-reported
-// estimate, snap to the settled total at terminal.
+// Live "buzz spent so far" for post-paid steps. Pure math, no timers — the
+// caller ticks it. Pin the rate from the first `output.usage` seen,
+// extrapolate `ceil(rate × elapsed)` between polls, never display less than
+// the last server estimate, snap to the settled total at terminal.
 //
-// Anchoring rule (verified against prod billing): every source estimates the
-// SAME instant — the moment the runtime clock started — and every lag pushes
-// an estimate LATER (mid-run `usage.startedAt` is derived `computedAt −
-// runtimeSeconds` from heartbeat-lagged runtime; a fresh poll would otherwise
-// re-anchor to "started ~1s ago" and saw-tooth the counter). So the anchor is
-// the EARLIEST evidence ever seen and never moves forward. The trace's first
-// execution frame lands within ~100ms of the true start and usually wins.
+// Anchoring: every source estimates the SAME instant (billing-clock start)
+// and every lag pushes an estimate LATER — mid-run `usage.startedAt` is
+// derived from heartbeat-lagged runtime, so re-anchoring each poll would
+// saw-tooth the counter. The anchor is therefore the EARLIEST evidence ever
+// seen and never moves forward; the trace's first execution frame lands
+// within ~100ms of the true start and usually wins.
 
 import type { BuzzMeterState, UsageInfo } from './types.js';
 

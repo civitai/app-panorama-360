@@ -1,19 +1,8 @@
-// Dev harness entry — the vanilla replacement for the React starter's
-// <Harness>. Mounted only when VITE_DEV_HARNESS=true (main.ts dynamic-imports
-// this module, so nothing here — including the SDK's react-bound testing
-// barrel — reaches a production build).
-//
-//   mock  -> the SDK MOCK host. Synthetic, no real Buzz, no network.
-//   orch  -> mock host for init/consent/balance + the pano360 workflow
-//            messages answered with REAL orchestrator calls (orch-host.ts).
-//            SPENDS REAL BUZZ (~30-90 per seamless panorama).
-//   live  -> the SDK LIVE host: real backend, real block token, REAL Buzz.
-//            Fails safe without VITE_LIVE_BLOCK_TOKEN. Hosted mode only (the
-//            real bridge doesn't know the pano360 kind).
-//
-// Ordering is load-bearing: the transport singleton must allowlist this origin
-// BEFORE the mock host installs (its replies come from window.location.origin),
-// and the orch interceptor must wrap window.parent AFTER the mock host patched it.
+// Dev harness entry, mounted only when VITE_DEV_HARNESS=true (main.ts
+// dynamic-imports it, so the SDK's testing barrel never reaches a production
+// build). Ordering is load-bearing: the transport singleton must allowlist
+// this origin BEFORE the mock host installs, and the orch interceptor must
+// wrap window.parent AFTER the mock host patched it.
 
 import { registerElements } from './registry.js';
 import {
@@ -46,8 +35,7 @@ export async function mountHarness(root: HTMLElement): Promise<void> {
   const options = readMockHostUrlOptions();
   const host = createMockHost({
     buzzBalance: { blue: 1500, green: 250, yellow: 6000 },
-    // The SDK's default canned pick is a Flux model — this app filters the
-    // picker to SDXL, so can a family-correct checkpoint for the mock flow.
+    // The SDK's default canned pick is a Flux model; this app filters to SDXL.
     cannedPicks: {
       Checkpoint: {
         versionId: 126688,
@@ -108,12 +96,7 @@ function renderBanner(root: HTMLElement, mode: HarnessMode): void {
 /** The endpoint the dev-only vite plugin registers (vite-plugin-civitai-setup.ts). */
 const SETUP_ENDPOINT = '/__civitai/setup-dev-live';
 
-/**
- * Fail-safe LIVE screen — dev:live without a spendable dev token. Paste a
- * personal API key and the dev server mints the block token from the local
- * block.manifest.json + writes .env.development.local + auto-restarts into
- * live mode (same flow as the React starter, minus the wizard chrome).
- */
+/** Fail-safe LIVE screen — dev:live refuses to mount without a spendable dev token. */
 function renderLiveUnavailable(root: HTMLElement, reason: string): void {
   const card = document.createElement('div');
   card.className = 'pn-card';

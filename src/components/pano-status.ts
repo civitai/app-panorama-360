@@ -1,10 +1,5 @@
-// <pano-status> — the money-path readout. App-level alerts (consent gate,
-// insufficient-Buzz CTA, account-rejected, success copy) render here; the run
-// lifecycle itself (queue → preparing % → sampler progress, live buzz meter,
-// preview, logs, cancel, canceled/failed cards) is the kit's
-// <civitai-comfy-run>, projected from ControllerState.run. Built once — the
-// run element updates at the kit's tick rate and rebuilding it would reset
-// the logs toggle.
+// <pano-status> — app-level alerts + the kit's <civitai-comfy-run> card.
+// Built once: rebuilding the run element would reset its logs toggle.
 
 import { INITIAL_RUN_STATE } from '@civitai/comfy-run-kit';
 import type { ComfyRunElement } from '@civitai/comfy-run-kit/elements';

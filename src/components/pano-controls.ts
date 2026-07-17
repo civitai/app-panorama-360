@@ -1,8 +1,5 @@
-// <pano-controls> — the generation form: scene presets, prompt, seed, mode
-// toggle, the SDXL model row, and the Generate button. Emits `pano-generate`
-// with a PanoRequest detail (checkpoint threaded by <pano-app>), plus
-// `pano-mode-change` and `pano-pick-checkpoint` intents. DOM is built once;
-// property setters mutate in place so re-renders never clobber typing.
+// <pano-controls> — the generation form. DOM is built once; property setters
+// mutate in place so re-renders never clobber typing.
 
 import type { PanoRequest } from '../controller.js';
 import { CHECKPOINT_DEFAULT_NAME, SCENE_PRESETS, type PanoMode } from '../panorama.js';

@@ -1,12 +1,7 @@
-// <pano-viewer> — Photo Sphere Viewer lifecycle around a single equirectangular
-// image url. Light DOM (PSV's global CSS must style the container). The PSV
-// module is imported lazily on the first real panorama so the initial bundle
-// parse stays light.
-//
-// Contract: set the `src` property (null = placeholder). Emits
-// `pano-viewer-error` (bubbles) when PSV can't load the texture — the common
-// cause is a blob host without CORS headers, which WebGL requires but a plain
-// <img> does not, so <pano-app> can fall back to a flat preview.
+// <pano-viewer> — Photo Sphere Viewer around one equirectangular url. Light
+// DOM (PSV's global CSS must style the container); PSV imported lazily to
+// keep the initial bundle light. `pano-viewer-error` fires when the texture
+// won't load — WebGL needs CORS headers where a plain <img> doesn't.
 
 import type { Viewer } from '@photo-sphere-viewer/core';
 

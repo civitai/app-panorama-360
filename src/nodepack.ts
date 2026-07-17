@@ -1,12 +1,7 @@
-// Install-layer AIR cache for the seamless-tiling nodepack. After the first
-// 2-step run the orchestrator has captured (and cached server-side) the pack's
-// image-specific install layer; remembering the layer AIR lets later runs
-// submit single-step. Purely an optimization: the layer goes stale when the
-// worker image rolls over, so callers invalidate + retry 2-step on failure.
-//
-// localStorage access THROWS in a sandboxed iframe without allow-same-origin
-// (the production block sandbox), so every access is guarded with an in-memory
-// fallback.
+// Install-layer AIR cache — an optimization only: the layer goes stale when
+// the worker image rolls over, so callers invalidate + retry 2-step on
+// failure. localStorage THROWS in the production block sandbox (no
+// allow-same-origin), hence the guarded in-memory fallback.
 
 import { NODEPACK_AIR } from './panorama.js';
 

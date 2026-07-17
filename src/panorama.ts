@@ -1,24 +1,12 @@
-// Pure Panorama Studio logic: scene presets, the proposed `pano360` workflow
-// body, the hosted (textToImage) fallback body, and the customComfy translation
-// the dev orchestrator host uses. No DOM — unit-tested in node (panorama.test.ts).
+// Pure Panorama Studio logic — bodies, Comfy graph translations, doc mapping.
+// No DOM; unit-tested in node (panorama.test.ts).
 
 import type { BlockWorkflowSnapshot, BuzzAccountType, WorkflowBody } from '@civitai/app-sdk/blocks';
 import type { OrchWorkflowDoc } from '@civitai/comfy-run-kit';
 
-// ---------------------------------------------------------------------------
-// The proposed block workflow body.
-//
-// The platform's block bridge (civitai `blocks.submitWorkflow`) currently
-// accepts only `kind: 'textToImage'`. This app targets a future `pano360`
-// kind: a SERVER-OWNED customComfy graph (seamless-wrap equirectangular
-// panorama) where the block supplies only bounded knobs — never a raw Comfy
-// graph. The dev-harness orchestrator host (orch-host.ts) implements exactly
-// the translation the platform side would own: `buildSeamlessTemplate` below.
-//
-// Until that bridge exists, the app also offers HOSTED mode — a plain
-// `textToImage` body the real host accepts today (same checkpoint + 360 LoRA,
-// same 2:1 canvas) whose panorama has a visible seam where the edges meet.
-// ---------------------------------------------------------------------------
+// The platform's block bridge accepts only `kind: 'textToImage'` today. The
+// `pano360` kind is this app's PROPOSED server-owned contract (bounded knobs,
+// never a raw graph); orch-host.ts stands in for the missing platform side.
 
 export type PanoMode = 'seamless' | 'zimage' | 'flux2' | 'qwen' | 'hosted';
 
@@ -41,7 +29,7 @@ export interface PanoBody {
   accountType?: BuzzAccountType;
   /** Recipe: 'sdxl' (conv-wrap seamless, default) or a DiT engine (seam inpainted). */
   engine?: PanoEngine;
-  /** SDXL checkpoint override (picker result); ignored by the zimage engine. */
+  /** SDXL checkpoint override (picker result); ignored by the DiT engines. */
   checkpoint?: PanoCheckpoint;
 }
 
@@ -55,20 +43,14 @@ export function sdxlCheckpointAir(checkpoint: PanoCheckpoint): string {
   return `urn:air:sdxl:checkpoint:civitai:${checkpoint.modelId}@${checkpoint.versionId}`;
 }
 
-// 360Redmond (SDXL v1.0) — the panorama LoRA. Trigger words: "360, 360view".
-// The SDXL version is deliberate: the seamless-wrap trick patches UNet conv
-// layers, which doesn't apply to the newer DiT-based versions of this LoRA.
+// 360Redmond, deliberately its SDXL version: the seamless-wrap trick patches
+// UNet conv layers, which the DiT versions of this LoRA don't have.
 export const LORA_MODEL_ID = 118025;
 export const LORA_VERSION_ID = 143197;
 export const LORA_AIR = `urn:air:sdxl:lora:civitai:${LORA_MODEL_ID}@${LORA_VERSION_ID}`;
 export const LORA_STRENGTH = 0.6;
 export const LORA_CLIP_STRENGTH = 1.0;
 
-// spinagon/ComfyUI-seamless-tiling@1.0.0 — SeamlessTile (circular conv padding
-// on the x axis so the left/right edges wrap) + CircularVAEDecode (same patch
-// on the VAE so the decode doesn't reintroduce a seam). Node class_types and
-// widget names verified against the pack source:
-// https://github.com/spinagon/ComfyUI-seamless-tiling (SeamlessTile.py)
 export const NODEPACK_AIR =
   'urn:air:comfy:nodepack:comfyregistry:spinagon/comfyui-seamless-tiling@1.0.0';
 
@@ -77,8 +59,7 @@ export const PROMPT_SUFFIX = ', ultra detailed, masterpiece, best quality';
 export const NEGATIVE_PROMPT =
   'ugly, blurry, low quality, watermark, jpeg artifacts, deformed, text, border, frame';
 
-// Equirectangular 2:1 canvas straight out of the sampler. 2048 is the block
-// bridge's DIM_MAX, so hosted mode can use the identical size.
+// 2048 is also the block bridge's DIM_MAX, so hosted mode uses the same canvas.
 export const PANO_WIDTH = 2048;
 export const PANO_HEIGHT = 1024;
 export const PANO_STEPS = 30;
@@ -90,33 +71,18 @@ export const HOSTED_SAMPLER = 'DPM++ 2M Karras';
 
 export const PROMPT_MAX = 1500;
 
-/**
- * Approximate cost shown before submit. customComfy bills post-paid
- * (1 Buzz per GPU-second); a 2048x1024 30-step SDXL run lands around 30-90.
- */
+/** customComfy bills post-paid (1 Buzz per GPU-second) — there is no exact pre-price. */
 export const PANORAMA_ESTIMATE_BUZZ = 60;
 
-// ---------------------------------------------------------------------------
-// Z-IMAGE TURBO engine — the fast recipe. Z-Image is a DiT (no UNet convs), so
-// the SeamlessTile circular-padding trick can't apply; instead the graph
-// renders normally and then HEALS the seam: roll the image 50% so the wrap
-// edge lands in the center, inpaint a feathered band across it (partial
-// denoise, same model), and roll back. Few-step turbo sampling (cfg 1) makes
-// the whole thing land around 10-25 Buzz.
-//
-// Model set mirrors the spine workers' own Z-Image graph builders
-// (UNETLoader + CLIPLoader[lumina2] + Flux VAE + ModelSamplingAuraFlow shift 3).
-// ---------------------------------------------------------------------------
-
+// Z-Image Turbo — model set mirrors the spine workers' own Z-Image builders.
 export const ZIMAGE_DIFFUSION_AIR =
   'urn:air:zimageturbo:diffusion_model:huggingface:Comfy-Org/z_image_turbo@main/split_files/diffusion_models/z_image_turbo_bf16.safetensors';
 export const ZIMAGE_CLIP_AIR =
   'urn:air:qwen:clip:huggingface:Comfy-Org/z_image_turbo@main/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors';
 export const ZIMAGE_VAE_AIR =
   'urn:air:flux1:vae:huggingface:black-forest-labs/FLUX.1-dev@main/ae.safetensors';
-// 360Redmond's Z-Image Turbo version. Trained words: "360 View", "360".
-// Ecosystem `zimageturbo` (the version's canonical AIR per the civitai API) —
-// `zimage:lora` fails resource resolution on the workers.
+// Ecosystem must be `zimageturbo` (the version's canonical AIR per the civitai
+// API) — `zimage:lora` fails resource resolution on the workers.
 export const ZIMAGE_LORA_VERSION_ID = 2702227;
 export const ZIMAGE_LORA_AIR = `urn:air:zimageturbo:lora:civitai:${LORA_MODEL_ID}@${ZIMAGE_LORA_VERSION_ID}`;
 export const ZIMAGE_LORA_STRENGTH = 1.0;
@@ -128,9 +94,8 @@ export const ZIMAGE_SHIFT = 3.0;
 export const ZIMAGE_SAMPLER = 'euler';
 export const ZIMAGE_SCHEDULER = 'simple';
 
-/** Seam-heal tunables: band width/feather in px, inpaint denoise fraction.
- * E2E-tuned: denoise 0.5 left the seam line partially intact (wrap ratio 4.2)
- * and a visible tonal step at the band edge — 0.7 + a wider feather heals it. */
+// Seam-heal tunables. Denoise below 0.7 leaves the seam line partially intact
+// and a tonal step at the band edge; the wide feather blends the repaint in.
 export const SEAM_BAND_PX = 320;
 export const SEAM_FEATHER_PX = 128;
 export const SEAM_DENOISE = 0.7;
@@ -138,22 +103,8 @@ export const SEAM_STEPS = 8;
 
 export const ZIMAGE_ESTIMATE_BUZZ = 20;
 
-// ---------------------------------------------------------------------------
-// QWEN IMAGE engine — the quality DiT (20B MMDiT, best prompt adherence).
-// Same graph shape as Z-Image (split loaders + KSampler) with ONE exception:
-// the diffusion loader is kjnodes' GGUFLoaderKJ with attention_override sdpa.
-// The fleet launches ComfyUI with --use-sage-attention, and SageAttention
-// silently mishandles the additive attention mask Qwen passes on every block
-// (comfy/ldm/qwen_image calls optimized_attention_masked) — the run "succeeds"
-// but outputs pure noise. sdpa forces pytorch attention for this model only;
-// GGUFLoaderKJ is the only fleet-baked node that exposes the override. The
-// GGUF is the exact file prod textToImage uses for Qwen (warm worker caches)
-// and the 2512 base matches the Feb-2026 LoRA. E2E: fp8-safetensors +
-// UNETLoader under sage = noise (probes 1-2); this loader = clean (probe 3).
-// Sampling mirrors the fleet: AuraFlow shift 3.1, steps 20 / cfg 2.5 /
-// euler / simple — cfg > 1, so the negative prompt works.
-// ---------------------------------------------------------------------------
-
+// Qwen Image. The GGUF is the exact file prod textToImage resolves for Qwen
+// (warm worker caches) and its 2512 base matches this LoRA variant.
 export const QWEN_DIFFUSION_AIR =
   'urn:air:qwen:diffusion_model:huggingface:unsloth/Qwen-Image-2512-GGUF@main/qwen-image-2512-Q5_K_M.gguf';
 export const QWEN_CLIP_AIR =
@@ -170,15 +121,8 @@ export const QWEN_SHIFT = 3.1;
 
 export const QWEN_ESTIMATE_BUZZ = 150;
 
-// ---------------------------------------------------------------------------
-// FLUX2 KLEIN 9B engine — BFL's mid-size DiT. Model set is prod's ComfyUI
-// variant ("9b-kv", all safetensors — Flux2KleinImageGenInput.cs), and the
-// graph mirrors the fleet's Flux2KleinKvWorkflowBuilder: CLIPLoader[flux2],
-// FluxKVCache, EmptyFlux2LatentImage, and the custom sampler stack
-// (Flux2Scheduler + CFGGuider + SamplerCustomAdvanced) instead of KSampler.
-// The seam pass gets its partial denoise via SplitSigmasDenoise (low_sigmas).
-// ---------------------------------------------------------------------------
-
+// Flux2 Klein 9B — prod's ComfyUI variant ("9b-kv" in Flux2KleinImageGenInput):
+// all-safetensors model set, sampled with the custom scheduler/guider stack.
 export const FLUX2_DIFFUSION_AIR =
   'urn:air:flux2:diffusion_model:huggingface:black-forest-labs/FLUX.2-klein-9b-kv-fp8@main/flux-2-klein-9b-kv-fp8.safetensors';
 export const FLUX2_CLIP_AIR =
@@ -190,8 +134,8 @@ export const FLUX2_LORA_AIR = `urn:air:flux2:lora:civitai:${LORA_MODEL_ID}@${FLU
 export const FLUX2_LORA_STRENGTH = 1.0;
 export const FLUX2_TRIGGER_WORDS = '360 View, 360, ';
 
-// Distilled Klein runs few-step but with REAL guidance (orchestration E2E uses
-// steps 8 / cfg 5 for the distilled 9b) — the negative prompt is active.
+// Klein is step-distilled but NOT guidance-distilled — cfg 5 is real guidance,
+// so the negative prompt is active.
 export const FLUX2_STEPS = 8;
 export const FLUX2_CFG = 5;
 
@@ -203,10 +147,8 @@ export interface ScenePreset {
   prompt: string;
 }
 
-/**
- * Curated scenes that read well wrapped around the viewer: open spaces with a
- * clear horizon line, since equirectangular projection stretches the poles.
- */
+// Open spaces with a clear horizon read best — equirectangular projection
+// stretches the poles.
 export const SCENE_PRESETS: readonly ScenePreset[] = [
   {
     id: 'alpine',
@@ -246,7 +188,6 @@ export const SCENE_PRESETS: readonly ScenePreset[] = [
   },
 ];
 
-/** Trim + clamp the scene prompt to the server cap. */
 export function clampPrompt(raw: string): string {
   return raw.trim().slice(0, PROMPT_MAX);
 }
@@ -272,12 +213,11 @@ export function buildPanoBody(
   return body;
 }
 
-/** The full positive prompt: LoRA trigger words + scene + quality tail. */
 export function positivePrompt(scene: string): string {
   return TRIGGER_WORDS + clampPrompt(scene) + PROMPT_SUFFIX;
 }
 
-/** DiT LoRA variants publish differently-cased/ordered trigger words. */
+/** Each DiT LoRA variant publishes differently-cased/ordered trigger words. */
 export function ditPositivePrompt(triggerWords: string, scene: string): string {
   return triggerWords + clampPrompt(scene) + PROMPT_SUFFIX;
 }
@@ -286,12 +226,7 @@ export function zimagePositivePrompt(scene: string): string {
   return ditPositivePrompt(ZIMAGE_TRIGGER_WORDS, scene);
 }
 
-// ---------------------------------------------------------------------------
-// HOSTED mode — the `textToImage` body the real platform bridge accepts today.
-// Same checkpoint + LoRA + canvas as seamless mode, but a plain generation:
-// the panorama works in a 360 viewer yet shows a seam where the edges meet.
-// ---------------------------------------------------------------------------
-
+/** The plain textToImage body the real bridge accepts today (visible seam). */
 export function buildHostedBody(
   prompt: string,
   seed?: number,
@@ -319,25 +254,15 @@ export function buildHostedBody(
   return body;
 }
 
-// ---------------------------------------------------------------------------
-// SEAMLESS mode — the customComfy translation. What the PLATFORM would own once
-// the block bridge grows a `pano360` kind; the dev orchestrator host stands in
-// for it today (orch-host.ts).
-//
-// The wrap trick (from the A1111 seamless-tiling setting): SeamlessTile flips
-// every UNet conv layer's x-axis padding to `circular`, so the sampler paints a
-// canvas whose left/right edges are continuations of each other; then
-// CircularVAEDecode applies the same patch to the VAE so decoding doesn't
-// reintroduce an edge. y stays untouched — only the horizontal seam must wrap
-// in an equirectangular panorama.
-// ---------------------------------------------------------------------------
-
 /** A ComfyUI /prompt graph: node-id keyed, class_type + inputs, link refs ['id', slot]. */
 export type ComfyGraph = Record<
   string,
   { class_type: string; inputs: Record<string, unknown> }
 >;
 
+// The wrap trick: SeamlessTile flips every UNet conv's x-axis padding to
+// `circular`, so the sampler paints edges that continue into each other;
+// the VAE gets the same patch so decoding doesn't reintroduce an edge.
 export function buildSeamlessGraph(body: PanoBody): ComfyGraph {
   const seed = body.seed ?? Math.floor(Math.random() * 2_147_483_647);
   const checkpointAir = body.checkpoint ? sdxlCheckpointAir(body.checkpoint) : CHECKPOINT_AIR;
@@ -356,10 +281,9 @@ export function buildSeamlessGraph(body: PanoBody): ComfyGraph {
         strength_clip: LORA_CLIP_STRENGTH,
       },
     },
-    // "Modify in place" everywhere: the registry build of this pack deep-copies
-    // on the "Make a copy" branch and modern ComfyUI model/VAE objects crash
-    // under copy.deepcopy ("'NoneType' object is not callable" in __setstate__).
-    // In-place patching is safe in a one-shot job container.
+    // "Modify in place": this pack's copy branch uses copy.deepcopy, which
+    // crashes on modern ComfyUI model/VAE objects. In-place is safe in a
+    // one-shot job container.
     '3': {
       class_type: 'SeamlessTile',
       inputs: { model: ['2', 0], tiling: 'x_only', copy_model: 'Modify in place' },
@@ -391,9 +315,8 @@ export function buildSeamlessGraph(body: PanoBody): ComfyGraph {
         denoise: 1.0,
       },
     },
-    // NOT CircularVAEDecode: it always deep-copies the VAE (same crash as
-    // above, no in-place option). MakeCircularVAE + stock VAEDecode applies
-    // the identical x-wrap patch without any copy.
+    // NOT CircularVAEDecode — it always deep-copies the VAE (same crash, no
+    // in-place option). MakeCircularVAE + stock VAEDecode is the same patch.
     '8': {
       class_type: 'MakeCircularVAE',
       inputs: { vae: ['1', 2], tiling: 'x_only', copy_vae: 'Modify in place' },
@@ -409,8 +332,7 @@ export function buildSeamlessGraph(body: PanoBody): ComfyGraph {
   };
 }
 
-/** Friendly names for the graph's node ids — shown by the run-status element
- * as the trace's `executing` events walk the graph. */
+/** Shown by the run-status element as the trace's `executing` events walk the graph. */
 export const PANO_NODE_LABELS: Record<string, string> = {
   '1': 'Loading checkpoint',
   '2': 'Applying 360 LoRA',
@@ -428,18 +350,10 @@ export const SNAPSHOT_STEP_NAME = 'snapshot';
 export const GEN_STEP_NAME = 'pano';
 
 /**
- * Build the orchestrator `WorkflowTemplate` for a seamless panorama — the exact
- * body POST /v2/consumer/workflows accepts.
- *
- * Custom-node handling: a bare `nodepack` AIR is rejected at submit; the pack
- * must arrive as an image-specific INSTALL-LAYER AIR. Two forms:
- *  - no cached layer → 2-step: a `comfyNodepackSnapshot` step captures (or
- *    cache-hits) the layer, and the customComfy step `$ref`s its output. The
- *    orchestrator caches captured layers, so the extra step is cheap after the
- *    first run.
- *  - `layerAir` known (cached from a previous run) → single-step submit with
- *    the layer AIR inlined. Invalidate + fall back to 2-step on failure — the
- *    layer is image-specific and goes stale when the worker image rolls over.
+ * A bare `nodepack` AIR is rejected at submit; the pack must arrive as an
+ * image-specific install-layer AIR. Without a cached `layerAir` this submits
+ * 2-step (comfyNodepackSnapshot + $ref); with one, single-step. Cached layers
+ * go stale when the worker image rolls over — invalidate and fall back.
  */
 export function buildSeamlessTemplate(
   body: PanoBody,
@@ -449,8 +363,7 @@ export function buildSeamlessTemplate(
   const checkpointAir = body.checkpoint ? sdxlCheckpointAir(body.checkpoint) : CHECKPOINT_AIR;
 
   // trace: 'binary' records the worker's ComfyUI /ws session to a streamable
-  // blob (steps[].output.traceUrl) — the run UI tails it for real sampler
-  // progress, live previews, and logs.
+  // blob — the run UI tails it for sampler progress, previews, and logs.
   const genStep = (resources: unknown[]) => ({
     $type: 'customComfy',
     name: GEN_STEP_NAME,
@@ -482,16 +395,7 @@ export function buildSeamlessTemplate(
   };
 }
 
-// ---------------------------------------------------------------------------
-// STANDARD translation — what the dev orchestrator host runs for hosted-mode
-// (`kind: 'textToImage'`) bodies so Standard is REAL in dev:orch too. On a
-// real embed the platform bridge executes these itself; this is the equivalent
-// plain generation as a single stock-node customComfy step (no wrap patch —
-// Standard's visible seam is the honest behavior). Params (incl. the
-// trigger-worded prompt) come from the hosted body verbatim.
-// ---------------------------------------------------------------------------
-
-/** The subset of the bridge textToImage body the translation reads. */
+/** The subset of the bridge textToImage body the Standard translation reads. */
 export interface HostedBodyLike {
   kind: 'textToImage';
   modelId: number;
@@ -511,14 +415,19 @@ export interface HostedBodyLike {
 export const isHostedBody = (body: unknown): body is HostedBodyLike =>
   typeof body === 'object' && body !== null && (body as { kind?: unknown }).kind === 'textToImage';
 
+/**
+ * Runs a hosted-mode body as a real plain generation in dev:orch, so Standard
+ * never returns a mock image next to real spend. No wrap patch — Standard's
+ * visible seam is the honest behavior.
+ */
 export function buildStandardTemplate(body: HostedBodyLike): Record<string, unknown> {
   const seed = body.params.seed ?? Math.floor(Math.random() * 2_147_483_647);
   const checkpointAir = sdxlCheckpointAir({
     modelId: body.modelId,
     versionId: body.modelVersionId,
   });
-  // The dev harness only knows how to map its OWN LoRA back to an AIR (the
-  // bridge wire format carries just the versionId).
+  // The bridge wire format carries just the versionId; the dev harness can map
+  // only its OWN LoRA back to an AIR.
   const lora = body.additionalResources?.find((r) => r.modelVersionId === LORA_VERSION_ID);
 
   const modelSource: [string, number] = lora ? ['2', 0] : ['1', 0];
@@ -581,7 +490,7 @@ export function buildStandardTemplate(body: HostedBodyLike): Record<string, unkn
   };
 }
 
-/** Standard graph reuses the seamless graph's node numbering minus the wrap. */
+/** Reuses the seamless graph's node numbering minus the wrap nodes. */
 export const STANDARD_NODE_LABELS: Record<string, string> = {
   '1': 'Loading checkpoint',
   '2': 'Applying 360 LoRA',
@@ -593,21 +502,11 @@ export const STANDARD_NODE_LABELS: Record<string, string> = {
   '10': 'Saving panorama',
 };
 
-// ---------------------------------------------------------------------------
-// DiT translations — render, then heal the seam.
-//
-// DiT models have no UNet convs, so the SeamlessTile wrap trick can't apply.
-// Instead: render normally, roll the image 50% so the wrap edge lands in the
-// center, inpaint a feathered band across it (partial denoise, same model),
-// and roll back. ComfyUI has no image "roll" node, so the 50% roll is
-// 2x ImageCrop + ImageStitch with the halves swapped (an involution — applying
-// it again rolls back).
-//
-// Z-Image Turbo and Qwen Image share one graph shape (split loaders +
-// KSampler), parameterized by DitEngineSpec. Flux2 Klein needs its own graph:
-// the fleet samples it with Flux2Scheduler + CFGGuider + SamplerCustomAdvanced
-// instead of KSampler (buildFlux2SeamlessGraph below).
-// ---------------------------------------------------------------------------
+// DiT models have no UNet convs, so the wrap trick can't apply. Instead:
+// render, roll the image 50% so the wrap edge lands in the center, inpaint a
+// feathered band across it (partial denoise, same model), roll back. Z-Image
+// and Qwen share one KSampler-shaped graph; Klein needs the fleet's custom
+// sampler stack (buildFlux2SeamlessGraph).
 
 /** Everything that differs between the KSampler-shaped DiT engines. */
 export interface DitEngineSpec {
@@ -649,6 +548,10 @@ export const ZIMAGE_SPEC: DitEngineSpec = {
 
 export const QWEN_SPEC: DitEngineSpec = {
   diffusionAir: QWEN_DIFFUSION_AIR,
+  // The fleet launches ComfyUI with --use-sage-attention, and SageAttention
+  // silently corrupts the attention mask Qwen passes on every block — runs
+  // "succeed" but output pure noise. GGUFLoaderKJ is the only fleet-baked
+  // node exposing attention_override; sdpa forces pytorch attention here.
   loader: {
     class_type: 'GGUFLoaderKJ',
     inputs: {
@@ -676,7 +579,11 @@ export const QWEN_SPEC: DitEngineSpec = {
 
 const HALF_W = PANO_WIDTH / 2;
 
-/** 50% horizontal roll: id: left crop, id+1: right crop, id+2: [R|L] stitch. */
+/**
+ * 50% horizontal roll: id: left crop, id+1: right crop, id+2: [R|L] stitch.
+ * ComfyUI has no roll node; crop+stitch is an involution, so applying it
+ * again rolls back.
+ */
 function rollNodes(id: number, image: [string, number]): ComfyGraph {
   return {
     [`${id}`]: {
@@ -739,7 +646,6 @@ export function buildDitSeamlessGraph(spec: DitEngineSpec, body: PanoBody): Comf
   const seed = body.seed ?? Math.floor(Math.random() * 2_147_483_647);
 
   return {
-    // txt2img
     '1': spec.loader,
     '2': {
       class_type: 'LoraLoaderModelOnly',
@@ -788,11 +694,8 @@ export function buildDitSeamlessGraph(spec: DitEngineSpec, body: PanoBody): Comf
       class_type: 'VAEDecode',
       inputs: { samples: ['9', 0], vae: ['7', 0] },
     },
-    // roll 50% — wrap edge to center (11: left, 12: right, 13: [R|L])
     ...rollNodes(11, ['10', 0]),
-    // feathered band mask over the centered seam (14-17)
     ...bandMaskNodes(14),
-    // inpaint the band in context (partial denoise, same model)
     '18': {
       class_type: 'VAEEncode',
       inputs: { pixels: ['13', 0], vae: ['7', 0] },
@@ -820,7 +723,6 @@ export function buildDitSeamlessGraph(spec: DitEngineSpec, body: PanoBody): Comf
       class_type: 'VAEDecode',
       inputs: { samples: ['20', 0], vae: ['7', 0] },
     },
-    // roll back (22: left, 23: right, 24: [R|L] — the involution restores order)
     ...rollNodes(22, ['21', 0]),
     '25': {
       class_type: 'SaveImage',
@@ -838,17 +740,14 @@ export function buildQwenSeamlessGraph(body: PanoBody): ComfyGraph {
 }
 
 /**
- * Flux2 Klein 9B graph — same recipe, fleet sampler stack. Partial denoise for
- * the seam pass comes from SplitSigmasDenoise's low_sigmas output (output 1):
- * SamplerCustomAdvanced scales its noise to the first sigma it's given, which
- * is exactly how KSampler's denoise<1 behaves. The CFGGuider and sampler
- * select are shared between both passes.
+ * Klein via the fleet's sampler stack. The seam pass gets its partial denoise
+ * from SplitSigmasDenoise's low_sigmas (output 1): SamplerCustomAdvanced
+ * scales its noise to the first sigma given, exactly like KSampler denoise<1.
  */
 export function buildFlux2SeamlessGraph(body: PanoBody): ComfyGraph {
   const seed = body.seed ?? Math.floor(Math.random() * 2_147_483_647);
 
   return {
-    // txt2img
     '1': {
       class_type: 'UNETLoader',
       inputs: { unet_name: FLUX2_DIFFUSION_AIR, weight_dtype: 'default' },
@@ -907,11 +806,8 @@ export function buildFlux2SeamlessGraph(body: PanoBody): ComfyGraph {
       class_type: 'VAEDecode',
       inputs: { samples: ['12', 0], vae: ['6', 0] },
     },
-    // roll 50% — wrap edge to center (14: left, 15: right, 16: [R|L])
     ...rollNodes(14, ['13', 0]),
-    // feathered band mask over the centered seam (17-20)
     ...bandMaskNodes(17),
-    // inpaint the band in context (partial denoise via low_sigmas)
     '21': {
       class_type: 'VAEEncode',
       inputs: { pixels: ['16', 0], vae: ['6', 0] },
@@ -946,7 +842,6 @@ export function buildFlux2SeamlessGraph(body: PanoBody): ComfyGraph {
       class_type: 'VAEDecode',
       inputs: { samples: ['26', 0], vae: ['6', 0] },
     },
-    // roll back (28: left, 29: right, 30: [R|L] — the involution restores order)
     ...rollNodes(28, ['27', 0]),
     '31': {
       class_type: 'SaveImage',
@@ -955,14 +850,9 @@ export function buildFlux2SeamlessGraph(body: PanoBody): ComfyGraph {
   };
 }
 
-/** A non-SDXL engine — everything that submits as a single stock-node step. */
 export type DitEngine = Exclude<PanoEngine, 'sdxl'>;
 
-/**
- * The DiT orchestrator template: ONE customComfy step — the recipes use only
- * stock ComfyUI nodes, so there is no nodepack snapshot step and no
- * install-layer cache to manage.
- */
+/** ONE customComfy step — all stock/baked nodes, so no snapshot step or layer cache. */
 export function buildDitSeamlessTemplate(
   engine: DitEngine,
   body: PanoBody,
@@ -1064,12 +954,6 @@ export const FLUX2_NODE_LABELS: Record<string, string> = {
   '31': 'Saving panorama',
 };
 
-// ---------------------------------------------------------------------------
-// Orchestrator workflow document -> BlockWorkflowSnapshot mapping (what the
-// platform host does server-side today for textToImage).
-// ---------------------------------------------------------------------------
-
-/** The kit's rich consumer-API doc type (jobs, queuePosition, usage, traceUrl). */
 export type OrchestratorWorkflowDoc = OrchWorkflowDoc;
 
 const STATUS_MAP: Record<string, BlockWorkflowSnapshot['status']> = {
@@ -1102,11 +986,7 @@ export function mapWorkflowToSnapshot(doc: OrchestratorWorkflowDoc): BlockWorkfl
   return snapshot;
 }
 
-/**
- * Pull the captured install-layer AIR out of a workflow doc's snapshot step, so
- * later generations can submit single-step. `undefined` when the doc has no
- * snapshot step (single-step submit) or the capture hasn't finished.
- */
+/** `undefined` until the snapshot step has captured its install layer. */
 export function extractLayerAir(doc: OrchestratorWorkflowDoc): string | undefined {
   const step = (doc.steps ?? []).find((s) => s.name === SNAPSHOT_STEP_NAME);
   const layerAir = step?.output?.results?.[0]?.layerAir;

@@ -1,8 +1,5 @@
-// Framework-free bridge to the Civitai Apps host. The SDK's transport classes
-// carry no React — only its hooks do — so this module wraps the singleton
-// transport ({@link getTransport}) with the calls the app needs: estimate,
-// sign-in/consent, balance, resize, plus a comfy-run-kit BridgeGateway over the
-// same transport for the workflow lifecycle (submit/poll/cancel).
+// Framework-free bridge to the Civitai Apps host — the SDK's transport classes
+// carry no React (only its hooks do), so this wraps the singleton directly.
 
 import { getTransport, sendTypedRequest } from '@civitai/blocks-react';
 import type { BlockSnapshot, BlockTransport } from '@civitai/blocks-react';
@@ -33,11 +30,7 @@ export interface BlockSession extends WorkflowBridge {
   requestConsent(): void;
   /** Read the viewer's Buzz wallet; null when the host can't answer. */
   getBuzzBalance(): Promise<BuzzBalance | null>;
-  /**
-   * Open the host's checkpoint picker filtered to a base-model family.
-   * Resolves the pick (discovery-only — the server re-validates at submit)
-   * or null when the user dismissed / the host can't show a picker.
-   */
+  /** Resolves the pick (discovery-only — the server re-validates at submit) or null on dismiss. */
   openCheckpointPicker(options: {
     baseModelGroup: string;
     currentVersionId?: number;
@@ -47,12 +40,8 @@ export interface BlockSession extends WorkflowBridge {
 }
 
 /**
- * Create the session over the process-wide transport. In production the
- * transport reads its parent-origin allowlist from
- * VITE_BLOCK_ALLOWED_PARENT_ORIGINS; the dev harness pre-initializes it with
- * the local origin before calling this (see dev-transport.ts). Never blocks:
- * outbound requests queue until BLOCK_INIT lands, and the UI gates on
- * `getSnapshot().ready`.
+ * Never blocks: outbound requests queue until BLOCK_INIT lands, and the UI
+ * gates on `getSnapshot().ready`.
  */
 export function createBlockSession(transport: BlockTransport = getTransport()): BlockSession {
   return {

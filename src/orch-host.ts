@@ -1,47 +1,8 @@
-// Dev-only ORCHESTRATOR host mode (`npm run dev:orch`).
-//
-// The platform's block bridge (civitai `blocks.submitWorkflow`) supports only
-// `kind: 'textToImage'` today, so the real host can't run this app's `pano360`
-// bodies yet. This module stands in for the missing platform piece during
-// development: it intercepts the workflow bridge messages BEFORE the SDK mock
-// host sees them and answers generation bodies with REAL orchestrator calls —
-// `pano360` bodies via the server-owned customComfy templates (panorama.ts)
-// exactly as the platform's blocks.router would, and `textToImage`
-// (Standard-mode) bodies via an equivalent plain-SDXL customComfy graph so no
-// mode ever returns a fake image next to real spend. It also answers
-// CANCEL_WORKFLOW for its own workflows with a real PUT {status: canceled}
-// (the orchestrator interrupts ComfyUI mid-render; post-paid billing charges
-// only elapsed runtime).
-//
-// Enrichment: every workflow reply carries a `detail: RunDetail` field beside
-// the flat snapshot (extra payload fields survive postMessage) — queue
-// position, preparing %, live usage, and a same-origin-rewritten traceUrl the
-// kit's trace tailer can stream. This is exactly the enrichment a future real
-// platform bridge would attach; the kit degrades gracefully without it.
-//
-// GET_BUZZ_BALANCE is answered with an honest "not readable" error instead of
-// forwarding to the mock host — never show fake balance numbers next to real
-// spend (illusion-factory precedent). Everything else (BLOCK_INIT, tokens,
-// consent, theme) stays on the SDK mock host mounted by the harness.
-//
-// The mock host delivers the block's OUTBOUND messages by patching
-// `window.parent.postMessage` (they never become real window `message`
-// events), so interception must wrap that same seam: installOrchestratorHost()
-// replaces `window.parent` with a delegate whose postMessage handles the pano
-// workflow messages and forwards everything else to the mock host's patched
-// parent. It must run AFTER the mock host installs.
-//
-// Money path: requests go SAME-ORIGIN to `/orch/...`; the Vite dev proxy
-// forwards them to the orchestrator and injects the dev's API token
-// SERVER-SIDE (vite.config.ts) — the token never reaches client JS. Submits
-// SPEND REAL BUZZ on the token owner's account (~30-90 Buzz per panorama,
-// billed post-paid at 1 Buzz per GPU-second).
-//
-// Nodepack layers: the first submit goes 2-step (comfyNodepackSnapshot +
-// customComfy via $ref); once a poll shows the captured layer AIR it's cached
-// (nodepack.ts) and later submits go single-step. A failed single-step submit
-// invalidates the cache and retries 2-step once — the layer is image-specific
-// and goes stale when the worker fleet's comfy image rolls over.
+// Dev-only ORCHESTRATOR host (`npm run dev:orch`): stands in for the missing
+// platform bridge piece by answering generation messages with REAL
+// orchestrator calls (the templates in panorama.ts). Requests go same-origin
+// to `/orch/...` — the Vite proxy injects the dev's API token SERVER-SIDE, so
+// it never reaches client JS. Submits SPEND REAL BUZZ on the token owner.
 
 import { mapDocToDetail, type RunDetail } from '@civitai/comfy-run-kit';
 
@@ -269,8 +230,7 @@ const ENGINE_ESTIMATE_BUZZ: Record<PanoEngine, number> = {
 };
 
 function handleEstimate(requestId: string, body: PanoBody | HostedBodyLike): void {
-  // customComfy bills post-paid (1 Buzz per GPU-second) — there is no exact
-  // pre-price. Report the tuned per-engine approximation the button shows.
+  // Post-paid billing has no exact pre-price — report the per-engine approximation.
   const total = isHostedBody(body)
     ? PANORAMA_ESTIMATE_BUZZ
     : ENGINE_ESTIMATE_BUZZ[body.engine ?? 'sdxl'];
@@ -297,9 +257,8 @@ async function handleCheckpointPicker(
       payload: { requestId, ...(selected !== undefined && selected !== null ? { selected } : {}) },
     });
   try {
-    // The SDK live host's own searchable overlay, pointed at the public
-    // catalog through the vite `/api` proxy (same-origin, no token). A pick is
-    // discovery-only; a real bridge re-validates the id at submit.
+    // Public catalog via the `/api` proxy, no token. A pick is discovery-only;
+    // a real bridge re-validates the id at submit.
     const { openPickerOverlay } = await import('@civitai/blocks-react/testing');
     const group = payload.baseModelGroup;
     openPickerOverlay({
@@ -338,12 +297,7 @@ interface BridgeMessage {
 const isPanoBody = (body: unknown): body is PanoBody =>
   typeof body === 'object' && body !== null && (body as { kind?: unknown }).kind === 'pano360';
 
-/**
- * Decide whether this host answers the message (true) or the mock host should
- * (false): generation estimates/submits (pano360 AND textToImage), the picker,
- * and the balance probe are ours; polls/cancels are ours only for workflows we
- * created; everything else belongs to the mock host.
- */
+/** True when this host answers the message; false hands it to the mock host. */
 function handleIntercepted(data: BridgeMessage): boolean {
   const requestId = data.payload?.requestId;
   if (typeof requestId !== 'string') return false;
@@ -381,9 +335,9 @@ function handleIntercepted(data: BridgeMessage): boolean {
 }
 
 /**
- * Wrap the (mock-host-patched) `window.parent` so pano workflow messages are
- * answered here and everything else delegates to the mock host. Call AFTER
- * the mock host has installed (see the header comment); returns the restore.
+ * The mock host delivers the block's outbound messages by patching
+ * `window.parent.postMessage` (they never become real `message` events), so
+ * interception must wrap that same seam — call AFTER the mock host installs.
  */
 export function installOrchestratorHost(): () => void {
   const mockParent = window.parent;

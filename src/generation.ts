@@ -1,36 +1,19 @@
-// Pure logic for the Panorama 360 page money app. No React, no DOM — unit-tested
-// in node (see generation.test.ts). The App glue imports these so the
-// load-bearing decisions (cost format, insufficient-Buzz sniff, terminal-status
-// reduction, scope check) live in one tested place.
+// Pure generation-state logic. No DOM — unit-tested in node (generation.test.ts).
 
 import type { BlockWorkflowSnapshot, BuzzAccountType } from '@civitai/app-sdk/blocks';
 
 /** Server cap mirror — prompts over this are rejected by the workflow schema. */
 export const PROMPT_MAX = 1500;
 
-// ---------------------------------------------------------------------------
-// Per-account Buzz — which pool funds a generation.
-//
-// A block can prefer + read exactly three pools (the SDK's `BuzzAccountType`):
-//   blue   = free / earned Buzz
-//   yellow = purchased Buzz
-//   green  = creator-earned / tips
-// The platform-internal pools (red/purple) are never exposed to a block.
-// ---------------------------------------------------------------------------
-
-/** The Buzz pools a block can prefer + read ({ blue, green, yellow }). */
+// The pools a block can prefer + read: blue = free/earned, yellow = purchased,
+// green = creator-earned. Platform-internal pools are never exposed to a block.
 export const BUZZ_ACCOUNT_TYPES: readonly BuzzAccountType[] = ['blue', 'green', 'yellow'];
 
-/**
- * What the account picker offers: `'auto'` (the default — let the host choose the
- * funding order, today's behavior) plus one entry per readable pool.
- */
+/** `'auto'` = let the host choose the funding order. */
 export type AccountChoice = 'auto' | BuzzAccountType;
 
-/** Picker order: Auto first, then the pools. */
 export const ACCOUNT_CHOICES: readonly AccountChoice[] = ['auto', 'blue', 'green', 'yellow'];
 
-/** Human label for an account choice (Auto / Blue / Green / Yellow). */
 export function accountLabel(choice: AccountChoice): string {
   switch (choice) {
     case 'auto':
@@ -45,11 +28,9 @@ export function accountLabel(choice: AccountChoice): string {
 }
 
 /**
- * Label the pool that PRIMARILY funded a generation
- * (`BlockWorkflowSnapshot.spentAccountType`). This is the largest-debit account,
- * NOT necessarily "the paid account": a gen covered mostly by free/earned Buzz
- * reports `blue`. `undefined` (a host predating the field, or no spend) -> null,
- * so the caller can skip the "funded from…" note.
+ * `spentAccountType` is the LARGEST-debit pool, not "the paid account" — a gen
+ * covered mostly by free Buzz reports `blue`. `undefined` (old host / no
+ * spend) → null so the caller can skip the "funded from…" note.
  */
 export function spentAccountLabel(spent: BuzzAccountType | undefined): string | null {
   if (!spent) return null;
@@ -57,17 +38,14 @@ export function spentAccountLabel(spent: BuzzAccountType | undefined): string | 
 }
 
 /**
- * Manifest budget (page.buzzBudgetPerGen). Keep in sync with block.manifest.json
- * — the SERVER reads the manifest value at mint and clamps to the per-gen cap;
- * this constant only drives the client-side "Top up · N" CTA amount and budget
- * copy. The real ceiling is enforced server-side.
+ * Mirror of the manifest's page.buzzBudgetPerGen — only drives client copy;
+ * the real ceiling is clamped and enforced server-side at mint.
  */
 export const PAGE_BUZZ_BUDGET = 120;
 
 /** The scope the page token must carry before a generation can be submitted. */
 export const BUDGETED_SCOPE = 'ai:write:budgeted';
 
-/** Snapshot statuses that mean "stop polling". Mirrors the SDK's TERMINAL set. */
 const TERMINAL: ReadonlySet<BlockWorkflowSnapshot['status']> = new Set([
   'succeeded',
   'failed',
@@ -80,25 +58,17 @@ export function isTerminalStatus(status: BlockWorkflowSnapshot['status']): boole
 }
 
 /**
- * Does the token carry the budgeted-spend scope? Drives whether a Generate
- * click submits directly or first asks the host to open the consent UI.
- * `ai:write:budgeted` is consent-gated, so a fresh viewer's mint WITHHOLDS it
- * until they grant it; after grant the host pushes TOKEN_REFRESH with the scope
- * and this flips true -> retry.
+ * `ai:write:budgeted` is consent-gated: a fresh viewer's mint withholds it
+ * until they grant, then the host pushes TOKEN_REFRESH with the scope.
  */
 export function hasBudgetedScope(scopes: readonly string[] | undefined): boolean {
   return Array.isArray(scopes) && scopes.includes(BUDGETED_SCOPE);
 }
 
 /**
- * Sniff a workflow failure / error string for insufficient-Buzz language so the
- * UI can swap to a Top-Up CTA. There is NO structured error.code on the
- * BlockWorkflowSnapshot today (only a free-text `error`), so this is a substring
- * heuristic.
- *
- * NOTE: call {@link isDisallowedAccountError} FIRST — the disallowed-account
- * message also contains the word "buzz", which this heuristic would otherwise
- * misclassify as insufficient.
+ * Substring heuristic — the snapshot has no structured error code, only free
+ * text. Check {@link isDisallowedAccountError} FIRST: that message also
+ * contains "buzz" and would misclassify as insufficient.
  */
 export function isInsufficientBuzz(message: string | null | undefined): boolean {
   if (!message) return false;
@@ -113,16 +83,8 @@ export function isInsufficientBuzz(message: string | null | undefined): boolean 
 }
 
 /**
- * Sniff for the server's domain-clamp rejection of a preferred `accountType`.
- * When a page picks a Buzz pool that isn't spendable on this app's content-rating
- * domain, `blocks.submitWorkflow` rejects with a tRPC BAD_REQUEST whose message
- * is (civitai/civitai `blocks.router`):
- *
- *   buzz account '<type>' is not spendable for this app's content rating
- *
- * Detecting it lets the UI show a friendly "switched back to Auto" note instead
- * of a raw error. MUST be checked before {@link isInsufficientBuzz} (that
- * message contains "buzz").
+ * The server's domain-clamp rejection of a preferred accountType ("buzz
+ * account '<type>' is not spendable for this app's content rating").
  */
 export function isDisallowedAccountError(message: string | null | undefined): boolean {
   if (!message) return false;
@@ -130,24 +92,21 @@ export function isDisallowedAccountError(message: string | null | undefined): bo
   return m.includes('not spendable') || (m.includes('account') && m.includes('content rating'));
 }
 
-/** Format a Buzz cost for display, with thousands separators. `null` -> '—'. */
+/** `null` → '—'. */
 export function formatCost(cost: number | null | undefined): string {
   if (cost == null || !Number.isFinite(cost)) return '—';
   return Math.round(cost).toLocaleString();
 }
 
-/** Trim + clamp a prompt to the server cap so submit can't be rejected on length. */
 export function clampPrompt(raw: string): string {
   return raw.slice(0, PROMPT_MAX);
 }
 
-/** Pull the single displayable image url from a succeeded snapshot, if any. */
 export function firstImageUrl(snapshot: BlockWorkflowSnapshot | null): string | null {
   if (!snapshot || !snapshot.imageUrls || snapshot.imageUrls.length === 0) return null;
   return snapshot.imageUrls[0] ?? null;
 }
 
-/** The single-in-flight generation phase the page tracks. */
 export type GenPhase =
   | 'idle'
   | 'needs-consent'
@@ -160,26 +119,17 @@ export type GenPhase =
   | 'insufficient'
   | 'account-rejected';
 
-/** Is a generation in flight (Generate should be disabled / show progress)? */
 export function isBusyPhase(phase: GenPhase): boolean {
   return phase === 'estimating' || phase === 'submitting' || phase === 'polling';
 }
 
-/**
- * Classify a submit/estimate ERROR string (the thrown-rejection path) into a
- * terminal phase. Order matters: disallowed-account BEFORE insufficient (the
- * disallowed message contains "buzz").
- */
+/** Order matters: disallowed-account BEFORE insufficient (its message contains "buzz"). */
 export function phaseForError(message: string | null | undefined): GenPhase {
   if (isDisallowedAccountError(message)) return 'account-rejected';
   if (isInsufficientBuzz(message)) return 'insufficient';
   return 'failed';
 }
 
-/**
- * Reduce a polled snapshot to the next page phase. Keeps the status->phase
- * mapping in one tested place so the poll loop stays a thin driver.
- */
 export function phaseForSnapshot(snapshot: BlockWorkflowSnapshot): GenPhase {
   switch (snapshot.status) {
     case 'succeeded':

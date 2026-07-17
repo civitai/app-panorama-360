@@ -1,8 +1,5 @@
-// <pano-app> — root shell. Owns the block session + GenerationController and
-// projects their state into the child elements via properties; child intents
-// arrive as bubbling CustomEvents. Also owns the page-app chrome duties:
-// theme stamping, sign-in/lazy-consent gating, the Buzz balance strip, and
-// RESIZE_IFRAME reports.
+// <pano-app> — root shell. Projects session/controller state into children
+// via properties; child intents arrive as bubbling CustomEvents.
 
 import { RUN_CANCEL_EVENT } from '@civitai/comfy-run-kit/elements';
 
@@ -20,11 +17,8 @@ import type { PanoGallery } from './pano-gallery.js';
 import type { PanoStatus } from './pano-status.js';
 import type { PanoViewer } from './pano-viewer.js';
 
-/**
- * Seamless (customComfy) panoramas need a host that understands the proposed
- * `pano360` kind — today that's only the dev orchestrator harness. The mock
- * harness simulates any body, so it stays enabled there for UI work.
- */
+// customComfy modes need a host that understands the proposed `pano360` kind —
+// today that's the dev orch harness; the mock harness simulates any body.
 const SEAMLESS_AVAILABLE =
   import.meta.env.VITE_DEV_HARNESS === 'true' &&
   import.meta.env.VITE_HARNESS_MODE !== 'live';

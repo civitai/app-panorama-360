@@ -1,16 +1,12 @@
 // Pure, node-testable logic for the dev:live "Set up automatically" button.
+// The browser can't touch the filesystem, so a dev-only vite plugin
+// (../vite-plugin-civitai-setup.ts) exposes a localhost-only endpoint that is
+// a thin shell over `runDevLiveSetup`.
 //
-// The browser page can't touch the filesystem, but the VITE DEV SERVER runs in
-// Node — so a dev-only vite plugin (../vite-plugin-civitai-setup.ts) exposes a
-// localhost-only POST /__civitai/setup-dev-live endpoint that mints the dev
-// block token + writes the env, and the wizard calls it on a click. ALL the
-// non-trivial logic lives HERE as pure functions so it's unit-testable without a
-// live server; the plugin middleware is a thin shell over `runDevLiveSetup`.
-//
-// SECURITY: this module + the plugin are SERVER-ONLY (vite `apply: 'serve'`) —
-// they never reach the client bundle. The pasted personal key flows
-// browser → localhost dev server → the git-ignored `.env.development.local`
-// (CIVITAI_HOST_KEY, a NON-`VITE_` var → never bundled). Never log the key.
+// SECURITY: server-only (vite `apply: 'serve'`), never in the client bundle.
+// The pasted personal key flows browser → localhost dev server → git-ignored
+// `.env.development.local` (CIVITAI_HOST_KEY is non-`VITE_` → never bundled).
+// Never log the key.
 
 /** The two env vars auto-setup writes into `.env.development.local`. */
 export interface DevLiveEnv {
@@ -20,21 +16,15 @@ export interface DevLiveEnv {
   CIVITAI_HOST_KEY: string;
 }
 
-/** The mint request derived from the local `block.manifest.json`. */
 export interface MintRequest {
   slug: string;
   scopes: string[];
 }
 
 /**
- * Derive the dev-token mint request from the raw `block.manifest.json` text.
  * Mirrors the CLI's no-row local-manifest mint: the server mints from the
- * request-body `scopes` (the dev's LOCAL manifest scopes, clamped server-side)
- * for a slug with no app row yet. `blockId` is the slug.
- *
- * Throws a clear error if the manifest is unparseable or missing `blockId`.
- * `scopes` defaults to `[]` (the server then governs by any registered app's
- * scopes — same as omitting them from the CLI).
+ * request-body scopes (clamped server-side) for a slug with no app row yet.
+ * `scopes` defaults to [] — the server then governs by any registered app.
  */
 export function manifestToMintRequest(manifestJson: string): MintRequest {
   let parsed: unknown;
@@ -61,14 +51,8 @@ export function manifestToMintRequest(manifestJson: string): MintRequest {
 const ENV_KEYS = ['VITE_LIVE_BLOCK_TOKEN', 'CIVITAI_HOST_KEY'] as const;
 
 /**
- * MERGE the two auto-setup vars into the existing `.env.development.local`
- * contents, PRESERVING every other line (e.g.
- * `VITE_BLOCK_ALLOWED_PARENT_ORIGINS`). An existing `VITE_LIVE_BLOCK_TOKEN` /
- * `CIVITAI_HOST_KEY` line is REPLACED in place (comments + unrelated lines kept);
- * a missing one is appended. Never clobbers the whole file.
- *
- * `existing` may be empty/undefined (no file yet). The result always ends with a
- * single trailing newline.
+ * Merge the two auto-setup vars into the existing env contents, preserving
+ * every other line — never clobbers the whole file.
  */
 export function mergeEnvFile(existing: string | undefined, vars: DevLiveEnv): string {
   const lines = (existing ?? '').split('\n');
@@ -86,12 +70,10 @@ export function mergeEnvFile(existing: string | undefined, vars: DevLiveEnv): st
     return line;
   });
 
-  // Append any of our keys that weren't already present.
   const appended = ENV_KEYS.filter((k) => !seen.has(k)).map((k) => `${k}=${vars[k]}`);
 
-  // Drop leading/trailing blank lines so we don't accumulate them across runs
-  // (an empty/`\n`-terminated input splits to a stray `''`), then re-add exactly
-  // one trailing newline. Internal blank lines + comments are preserved.
+  // Trim edge blanks so they don't accumulate across runs (a `\n`-terminated
+  // input splits to a stray ''), then re-add exactly one trailing newline.
   const body = [...out, ...appended];
   while (body.length > 0 && body[0].trim() === '') body.shift();
   while (body.length > 0 && body[body.length - 1].trim() === '') body.pop();
@@ -99,15 +81,8 @@ export function mergeEnvFile(existing: string | undefined, vars: DevLiveEnv): st
 }
 
 /**
- * Map a failed dev-token mint to an ACTIONABLE message for the wizard. Mirrors
- * the CLI's `devTokenError` mapping (api.go) so the auto-setup path and the
+ * Mirrors the CLI's `devTokenError` mapping so the auto-setup path and the
  * manual path explain failures the same way.
- *  - 401 → invalid / not-a-spend key
- *  - 403 → needs an invite (invite-only beta) + a full-scope personal key
- *  - 404 → slug registered to a different account
- *  - 429 → rate limited
- *  - 503 → Apps unavailable
- * `body` is the raw response text; a `{ "message": ... }` field is surfaced.
  */
 export function mapMintError(status: number, body: string): string {
   let serverMsg = '';
@@ -142,31 +117,19 @@ export type FetchLike = (
 
 export interface MintDeps {
   fetch: FetchLike;
-  /** The backend the mint POSTs to (no trailing slash needed). */
   backendOrigin: string;
 }
 
 export type MintResult =
   | { token: string }
-  // `slugCollision` marks the anti-shadow 404 (the slug is an approved app owned
-  // by ANOTHER account) — the only rename-retriable failure. Other 404s (e.g. an
-  // owned-but-undeployed app: "no live deployment") do NOT set it.
+  // slugCollision marks the anti-shadow 404 (slug owned by ANOTHER account) —
+  // the only rename-retriable failure.
   | { error: string; slugCollision?: boolean };
 
 /**
- * Mint the dev block token via `POST <backendOrigin>/api/v1/blocks/dev-token`
- * with the pasted personal key as `Authorization: Bearer`. This is the SAME
- * no-row local-manifest mint `civitai app dev-token` does — NO CLI shell-out, NO
- * mutation of the global `~/.config/civitai` auth. `fetch` is injected so this is
- * unit-testable without a network.
- *
- * An `Origin` header is set to the backend host: the CLI omits it (the REST
- * route doesn't gate origin), but setting it mirrors the existing dev proxy and
- * is harmless if a future origin check is added.
- *
- * Returns `{ token }` on 200 (extracted from `.token`) or `{ error }` (mapped via
- * {@link mapMintError}) on any non-2xx / malformed / network failure. Never
- * throws and never logs the key.
+ * The same no-row local-manifest mint `civitai app dev-token` does — no CLI
+ * shell-out, no mutation of the global `~/.config/civitai` auth. Never throws
+ * and never logs the key.
  */
 export async function mintDevToken(
   apiKey: string,
@@ -188,22 +151,20 @@ export async function mintDevToken(
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
-        // Mirror the dev proxy's Origin rewrite (see vite.config.ts). The REST
-        // mint route doesn't gate origin today, but this is defensive + harmless.
+        // The mint route doesn't gate origin today; defensive + harmless.
         Origin: origin,
       },
       body: JSON.stringify({ slug: req.slug, scopes: req.scopes }),
     });
   } catch (e) {
-    // Network failure — surface the underlying message (never the key).
     return { error: `Could not reach ${origin}: ${e instanceof Error ? e.message : String(e)}` };
   }
 
   const raw = await res.text();
   if (!res.ok) {
     const error = mapMintError(res.status, raw);
-    // A bare 404 ("App not found") is the anti-shadow collision → rename-retriable.
-    // The owned-but-undeployed 404 carries "no live deployment" and is not.
+    // A bare 404 is the anti-shadow collision → rename-retriable. The
+    // owned-but-undeployed 404 carries "no live deployment" and is not.
     if (res.status === 404 && !/no live deployment/i.test(raw)) {
       return { error, slugCollision: true };
     }
@@ -222,18 +183,16 @@ export async function mintDevToken(
   return { token: parsed.token };
 }
 
-// The server slug contract: starts with a letter, lowercase, hyphen-separated,
-// ends alphanumeric, 3-40 chars. Mirrors the CLI's scaffold/slug.go.
+// The server slug contract (mirrors the CLI's scaffold/slug.go): starts with a
+// letter, lowercase, hyphen-separated, ends alphanumeric, 3-40 chars.
 const SLUG_REGEX = /^[a-z][a-z0-9-]*[a-z0-9]$/;
 const SLUG_SUFFIX_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
-/** Bound the auto-rename-on-collision retry loop (mirrors the CLI). */
 export const MAX_RENAME_ATTEMPTS = 5;
 
 /**
- * A lowercase-alphanumeric slug suffix of length `n` (no hyphens, so it can
- * safely start/end a slug). Uses Math.random — a suffix collision is harmless
- * (the retry loop just tries again).
+ * No hyphens, so the suffix can safely end a slug. Math.random is fine — a
+ * suffix collision just makes the retry loop try again.
  */
 export function randomSlugSuffix(n = 5): string {
   let s = '';
@@ -243,11 +202,7 @@ export function randomSlugSuffix(n = 5): string {
   return s;
 }
 
-/**
- * Return `<original>-<suffix>`, truncating `original` if needed so the result
- * stays within the 3-40 char slug bounds, and validate it against SLUG_REGEX.
- * Mirrors the CLI's scaffold.SuffixSlug. Throws on an unusable suffix/base.
- */
+/** `<original>-<suffix>`, truncated into the 3-40 char slug bounds (mirrors the CLI). */
 export function renameSlug(original: string, suffix: string): string {
   const suf = suffix.trim().toLowerCase();
   if (suf === '' || !/^[a-z0-9]+$/.test(suf)) {
@@ -267,10 +222,8 @@ export function renameSlug(original: string, suffix: string): string {
 }
 
 /**
- * Rewrite the manifest text's `blockId` value in place, preserving every other
- * field, its order, and the file's formatting (it edits only the blockId value).
- * Falls back to a structural re-emit if no `blockId` key is present. Mirrors the
- * CLI's manifest.SetBlockID.
+ * Edits only the blockId value so the file's formatting survives; falls back
+ * to a structural re-emit when no `blockId` key is present.
  */
 export function setManifestBlockId(manifestJson: string, newBlockId: string): string {
   const re = /("blockId"\s*:\s*)"[^"]*"/;
@@ -288,13 +241,10 @@ export interface SetupDeps {
   backendOrigin: string;
   /** Read a file as utf-8, or return undefined if it doesn't exist. */
   readFile: (path: string) => string | undefined;
-  /** Write a file as utf-8. */
   writeFile: (path: string, contents: string) => void;
-  /** Absolute path to the project's `block.manifest.json`. */
   manifestPath: string;
-  /** Absolute path to the `.env.development.local` to merge-write. */
   envPath: string;
-  /** Generate a random slug suffix; injectable for deterministic tests. */
+  /** Injectable for deterministic tests. */
   randomSuffix?: () => string;
   /** Notify the dev of a slug rename; defaults to console.error. */
   notify?: (message: string) => void;
@@ -303,11 +253,9 @@ export interface SetupDeps {
 export type SetupResult = { ok: true } | { ok: false; error: string };
 
 /**
- * The full auto-setup orchestration the middleware calls: validate the key →
- * read the manifest → mint → merge-write `.env.development.local` (both vars).
- * Pure over its injected deps (no real fs / network), so it's unit-testable end
- * to end. Writing `.env.development.local` makes vite auto-restart (it watches
- * `.env*`) → the page reloads into live mode.
+ * Validate key → read manifest → mint → merge-write the env. Pure over its
+ * injected deps. Writing `.env.development.local` makes vite auto-restart
+ * (it watches `.env*`), which reloads the page into live mode.
  */
 export async function runDevLiveSetup(apiKey: string, deps: SetupDeps): Promise<SetupResult> {
   const key = apiKey.trim();
@@ -328,9 +276,8 @@ export async function runDevLiveSetup(apiKey: string, deps: SetupDeps): Promise<
   const randomSuffix = deps.randomSuffix ?? (() => randomSlugSuffix(5));
   const notify = deps.notify ?? ((m: string) => console.error(m));
 
-  // Mint, and on the anti-shadow collision auto-rename the slug (append a random
-  // suffix to the ORIGINAL), rewrite block.manifest.json's blockId, notify, and
-  // retry — bounded by MAX_RENAME_ATTEMPTS. Any non-collision error aborts.
+  // On the anti-shadow collision: rename (suffix the ORIGINAL slug), rewrite
+  // the manifest, notify, retry. Any non-collision error aborts.
   let currentSlug = originalSlug;
   let token: string | undefined;
   for (let attempt = 0; attempt <= MAX_RENAME_ATTEMPTS; attempt++) {
@@ -367,7 +314,6 @@ export async function runDevLiveSetup(apiKey: string, deps: SetupDeps): Promise<
   }
 
   if (token === undefined) {
-    // Defensive: the loop only exits via return or a successful mint.
     return { ok: false, error: 'Mint failed after auto-rename retries.' };
   }
 

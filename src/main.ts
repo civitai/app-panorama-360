@@ -3,11 +3,8 @@ import './styles.css';
 
 import { registerElements } from './registry.js';
 
-// Entry. Production builds set no harness env, so the dynamic import below is
-// statically dead and the entire dev harness (including the SDK's react-bound
-// testing barrel) is tree-shaken out of `vite build`; the block mounts bare and
-// the platform is the host. `npm run dev:harness` / `dev:orch` / `dev:live`
-// flip VITE_DEV_HARNESS on and pick the host via VITE_HARNESS_MODE.
+// Production builds set no harness env, so the dynamic import is statically
+// dead and the whole dev harness is tree-shaken out of `vite build`.
 async function boot(): Promise<void> {
   const root = document.getElementById('root');
   if (!root) throw new Error('#root missing from index.html');

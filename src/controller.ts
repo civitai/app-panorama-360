@@ -1,8 +1,6 @@
-// The app-level generation state machine. Estimate, consent/Buzz-error
-// classification, and gallery accumulation are app concerns that live here;
-// the submit → poll → terminal lifecycle (progress, buzz meter, trace tail,
-// cancel) is delegated to a per-run comfy-run-kit RunController whose RunState
-// is exposed as `ControllerState.run` for the kit elements to render.
+// App-level generation state machine; the submit → poll → terminal lifecycle
+// is delegated to a per-run comfy-run-kit RunController, exposed as
+// `ControllerState.run` for the kit elements to render.
 
 import type { BlockWorkflowSnapshot, BuzzAccountType, WorkflowBody } from '@civitai/app-sdk/blocks';
 import { RunController, type RunGateway, type RunState } from '@civitai/comfy-run-kit';
