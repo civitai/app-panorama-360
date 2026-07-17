@@ -10,7 +10,9 @@ import {
   LORA_VERSION_ID,
   NODEPACK_AIR,
   NEGATIVE_PROMPT,
+  PANO_CFG,
   PANO_HEIGHT,
+  PANO_STEPS,
   PANO_WIDTH,
   PROMPT_MAX,
   SEAM_BAND_PX,
@@ -27,6 +29,7 @@ import {
   buildPanoBody,
   buildSeamlessGraph,
   buildSeamlessTemplate,
+  buildStandardTemplate,
   buildZimageSeamlessGraph,
   buildZimageSeamlessTemplate,
   clampPrompt,
@@ -251,6 +254,45 @@ describe('buildZimageSeamlessGraph', () => {
       class_type: 'SaveImage',
       inputs: { images: ['24', 0] },
     });
+  });
+});
+
+describe('buildStandardTemplate (dev:orch Standard-mode translation)', () => {
+  it('translates the hosted body into a plain single-step graph — no wrap nodes', () => {
+    const hosted = buildHostedBody('a lake', 9, undefined, { modelId: 112902, versionId: 126688 });
+    const steps = stepsOf(buildStandardTemplate(hosted as never));
+    expect(steps).toHaveLength(1);
+    expect(steps[0].$type).toBe('customComfy');
+    const air = 'urn:air:sdxl:checkpoint:civitai:112902@126688';
+    expect(steps[0].input.resources).toEqual([air, LORA_AIR]);
+
+    const graph = steps[0].input.workflow as Record<
+      string,
+      { class_type: string; inputs: Record<string, unknown> }
+    >;
+    expect(graph['1'].inputs.ckpt_name).toBe(air);
+    expect(graph['2'].inputs.lora_name).toBe(LORA_AIR);
+    expect(graph['4'].inputs.text).toBe(positivePrompt('a lake'));
+    expect(graph['7'].inputs).toMatchObject({ seed: 9, steps: PANO_STEPS, cfg: PANO_CFG });
+    const classTypes = Object.values(graph).map((n) => n.class_type);
+    expect(classTypes).not.toContain('SeamlessTile');
+    expect(classTypes).not.toContain('MakeCircularVAE');
+    expect(graph['9'].inputs.vae).toEqual(['1', 2]);
+  });
+
+  it('omits the LoRA chain when no known additionalResource rides the body', () => {
+    const hosted = { ...buildHostedBody('a lake') } as never as {
+      additionalResources?: unknown;
+    };
+    delete hosted.additionalResources;
+    const steps = stepsOf(buildStandardTemplate(hosted as never));
+    const graph = steps[0].input.workflow as Record<
+      string,
+      { class_type: string; inputs: Record<string, unknown> }
+    >;
+    expect(graph['2']).toBeUndefined();
+    expect(graph['7'].inputs.model).toEqual(['1', 0]);
+    expect(steps[0].input.resources).toHaveLength(1);
   });
 });
 

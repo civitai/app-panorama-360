@@ -420,6 +420,117 @@ export function buildSeamlessTemplate(
 }
 
 // ---------------------------------------------------------------------------
+// STANDARD translation — what the dev orchestrator host runs for hosted-mode
+// (`kind: 'textToImage'`) bodies so Standard is REAL in dev:orch too. On a
+// real embed the platform bridge executes these itself; this is the equivalent
+// plain generation as a single stock-node customComfy step (no wrap patch —
+// Standard's visible seam is the honest behavior). Params (incl. the
+// trigger-worded prompt) come from the hosted body verbatim.
+// ---------------------------------------------------------------------------
+
+/** The subset of the bridge textToImage body the translation reads. */
+export interface HostedBodyLike {
+  kind: 'textToImage';
+  modelId: number;
+  modelVersionId: number;
+  additionalResources?: Array<{ modelVersionId: number; strength?: number }>;
+  params: {
+    prompt: string;
+    negativePrompt?: string;
+    width: number;
+    height: number;
+    steps: number;
+    cfgScale: number;
+    seed?: number;
+  };
+}
+
+export const isHostedBody = (body: unknown): body is HostedBodyLike =>
+  typeof body === 'object' && body !== null && (body as { kind?: unknown }).kind === 'textToImage';
+
+export function buildStandardTemplate(body: HostedBodyLike): Record<string, unknown> {
+  const seed = body.params.seed ?? Math.floor(Math.random() * 2_147_483_647);
+  const checkpointAir = sdxlCheckpointAir({
+    modelId: body.modelId,
+    versionId: body.modelVersionId,
+  });
+  // The dev harness only knows how to map its OWN LoRA back to an AIR (the
+  // bridge wire format carries just the versionId).
+  const lora = body.additionalResources?.find((r) => r.modelVersionId === LORA_VERSION_ID);
+
+  const modelSource: [string, number] = lora ? ['2', 0] : ['1', 0];
+  const clipSource: [string, number] = lora ? ['2', 1] : ['1', 1];
+  const graph: ComfyGraph = {
+    '1': { class_type: 'CheckpointLoaderSimple', inputs: { ckpt_name: checkpointAir } },
+    ...(lora && {
+      '2': {
+        class_type: 'LoraLoader',
+        inputs: {
+          model: ['1', 0],
+          clip: ['1', 1],
+          lora_name: LORA_AIR,
+          strength_model: lora.strength ?? LORA_STRENGTH,
+          strength_clip: LORA_CLIP_STRENGTH,
+        },
+      },
+    }),
+    '4': { class_type: 'CLIPTextEncode', inputs: { clip: clipSource, text: body.params.prompt } },
+    '5': {
+      class_type: 'CLIPTextEncode',
+      inputs: { clip: clipSource, text: body.params.negativePrompt ?? '' },
+    },
+    '6': {
+      class_type: 'EmptyLatentImage',
+      inputs: { width: body.params.width, height: body.params.height, batch_size: 1 },
+    },
+    '7': {
+      class_type: 'KSampler',
+      inputs: {
+        model: modelSource,
+        positive: ['4', 0],
+        negative: ['5', 0],
+        latent_image: ['6', 0],
+        seed,
+        steps: body.params.steps,
+        cfg: body.params.cfgScale,
+        sampler_name: PANO_SAMPLER,
+        scheduler: PANO_SCHEDULER,
+        denoise: 1.0,
+      },
+    },
+    '9': { class_type: 'VAEDecode', inputs: { samples: ['7', 0], vae: ['1', 2] } },
+    '10': { class_type: 'SaveImage', inputs: { images: ['9', 0], filename_prefix: 'panorama' } },
+  };
+
+  return {
+    steps: [
+      {
+        $type: 'customComfy',
+        name: GEN_STEP_NAME,
+        timeout: '01:00:00',
+        input: {
+          resources: [checkpointAir, ...(lora ? [LORA_AIR] : [])],
+          trace: 'binary',
+          workflow: graph,
+        },
+      },
+    ],
+  };
+}
+
+/** Standard graph reuses the seamless graph's node numbering minus the wrap. */
+export const STANDARD_NODE_LABELS: Record<string, string> = {
+  '1': 'Loading checkpoint',
+  '2': 'Applying 360 LoRA',
+  '4': 'Encoding prompt',
+  '5': 'Encoding negative prompt',
+  '6': 'Preparing canvas',
+  '7': 'Sampling',
+  '9': 'Decoding image',
+  '10': 'Saving panorama',
+};
+
+// ---------------------------------------------------------------------------
 // Z-IMAGE TURBO translation — render, then heal the seam.
 //
 // txt2img mirrors the spine workers' own Z-Image graph (split loaders, lumina2

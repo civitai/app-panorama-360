@@ -11,6 +11,7 @@ import { phaseForError, type GenPhase } from './generation.js';
 import {
   PANORAMA_ESTIMATE_BUZZ,
   PANO_NODE_LABELS,
+  STANDARD_NODE_LABELS,
   ZIMAGE_ESTIMATE_BUZZ,
   ZIMAGE_NODE_LABELS,
   buildHostedBody,
@@ -145,6 +146,7 @@ export class GenerationController {
       gateway: this.bridge.gateway,
       ...(req.mode === 'seamless' && { nodeLabels: PANO_NODE_LABELS }),
       ...(req.mode === 'zimage' && { nodeLabels: ZIMAGE_NODE_LABELS }),
+      ...(req.mode === 'hosted' && { nodeLabels: STANDARD_NODE_LABELS }),
     });
     this.run = run;
     this.runUnsubscribe = run.subscribe((runState) => this.onRunState(runState));

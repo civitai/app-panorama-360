@@ -41,6 +41,12 @@
   box-sizing: border-box;
 }
 
+/* The hidden attribute must beat class display rules (.pn-field { display:grid }
+   would otherwise override the UA's [hidden] { display:none }). */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--pn-bg);

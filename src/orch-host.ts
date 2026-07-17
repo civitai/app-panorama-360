@@ -4,14 +4,14 @@
 // `kind: 'textToImage'` today, so the real host can't run this app's `pano360`
 // bodies yet. This module stands in for the missing platform piece during
 // development: it intercepts the workflow bridge messages BEFORE the SDK mock
-// host sees them and answers `pano360` bodies with REAL orchestrator calls —
-// translating the bounded body into the server-owned customComfy template
-// (panorama.ts) exactly as the platform's blocks.router would. It also answers
+// host sees them and answers generation bodies with REAL orchestrator calls —
+// `pano360` bodies via the server-owned customComfy templates (panorama.ts)
+// exactly as the platform's blocks.router would, and `textToImage`
+// (Standard-mode) bodies via an equivalent plain-SDXL customComfy graph so no
+// mode ever returns a fake image next to real spend. It also answers
 // CANCEL_WORKFLOW for its own workflows with a real PUT {status: canceled}
 // (the orchestrator interrupts ComfyUI mid-render; post-paid billing charges
-// only elapsed runtime). `textToImage` (hosted-mode) bodies are FORWARDED to
-// the mock host, so the mode toggle stays exercisable in one orch session
-// without double-spending.
+// only elapsed runtime).
 //
 // Enrichment: every workflow reply carries a `detail: RunDetail` field beside
 // the flat snapshot (extra payload fields survive postMessage) — queue
@@ -50,9 +50,12 @@ import {
   PANORAMA_ESTIMATE_BUZZ,
   ZIMAGE_ESTIMATE_BUZZ,
   buildSeamlessTemplate,
+  buildStandardTemplate,
   buildZimageSeamlessTemplate,
   extractLayerAir,
+  isHostedBody,
   mapWorkflowToSnapshot,
+  type HostedBodyLike,
   type OrchestratorWorkflowDoc,
   type PanoBody,
 } from './panorama.js';
@@ -166,11 +169,16 @@ async function submitSdxl(body: PanoBody): Promise<OrchestratorWorkflowDoc> {
   }
 }
 
-async function handleSubmit(requestId: string, body: PanoBody): Promise<void> {
+async function handleSubmit(requestId: string, body: PanoBody | HostedBodyLike): Promise<void> {
   try {
-    // zimage-turbo is all stock nodes: single step, no nodepack layer to manage.
-    const doc =
-      body.engine === 'zimage-turbo'
+    // zimage-turbo and standard are all stock nodes: single step, no nodepack
+    // layer to manage. Only the SDXL wrap needs the layer-cache dance.
+    const doc = isHostedBody(body)
+      ? await orchFetch(ORCH_BASE, {
+          method: 'POST',
+          body: JSON.stringify(buildStandardTemplate(body)),
+        })
+      : body.engine === 'zimage-turbo'
         ? await orchFetch(ORCH_BASE, {
             method: 'POST',
             body: JSON.stringify(buildZimageSeamlessTemplate(body)),
@@ -250,9 +258,13 @@ async function handleCancel(requestId: string, workflowId: string): Promise<void
   }
 }
 
-function handleEstimate(requestId: string, body: PanoBody): void {
+function handleEstimate(requestId: string, body: PanoBody | HostedBodyLike): void {
   // customComfy bills post-paid (1 Buzz per GPU-second) — there is no exact
   // pre-price. Report the tuned per-engine approximation the button shows.
+  const total =
+    !isHostedBody(body) && body.engine === 'zimage-turbo'
+      ? ZIMAGE_ESTIMATE_BUZZ
+      : PANORAMA_ESTIMATE_BUZZ;
   dispatchToBlock({
     type: 'ESTIMATE_RESULT',
     payload: {
@@ -260,9 +272,7 @@ function handleEstimate(requestId: string, body: PanoBody): void {
       snapshot: {
         workflowId: 'wf_estimate',
         status: 'pending',
-        cost: {
-          total: body.engine === 'zimage-turbo' ? ZIMAGE_ESTIMATE_BUZZ : PANORAMA_ESTIMATE_BUZZ,
-        },
+        cost: { total },
       },
     },
   });
@@ -321,16 +331,18 @@ const isPanoBody = (body: unknown): body is PanoBody =>
 
 /**
  * Decide whether this host answers the message (true) or the mock host should
- * (false): pano360 estimates/submits and the balance probe are ours;
- * polls/cancels are ours only for workflows we created; everything else —
- * including hosted-mode textToImage bodies — belongs to the mock host.
+ * (false): generation estimates/submits (pano360 AND textToImage), the picker,
+ * and the balance probe are ours; polls/cancels are ours only for workflows we
+ * created; everything else belongs to the mock host.
  */
 function handleIntercepted(data: BridgeMessage): boolean {
   const requestId = data.payload?.requestId;
   if (typeof requestId !== 'string') return false;
 
-  if (data.type === 'ESTIMATE_WORKFLOW' && isPanoBody(data.payload?.body)) {
-    handleEstimate(requestId, data.payload?.body as PanoBody);
+  const isGenBody = (body: unknown): body is PanoBody | HostedBodyLike =>
+    isPanoBody(body) || isHostedBody(body);
+  if (data.type === 'ESTIMATE_WORKFLOW' && isGenBody(data.payload?.body)) {
+    handleEstimate(requestId, data.payload?.body as PanoBody | HostedBodyLike);
     return true;
   }
   if (data.type === 'OPEN_CHECKPOINT_PICKER') {
@@ -340,8 +352,8 @@ function handleIntercepted(data: BridgeMessage): boolean {
     );
     return true;
   }
-  if (data.type === 'SUBMIT_WORKFLOW' && isPanoBody(data.payload?.body)) {
-    void handleSubmit(requestId, data.payload?.body as PanoBody);
+  if (data.type === 'SUBMIT_WORKFLOW' && isGenBody(data.payload?.body)) {
+    void handleSubmit(requestId, data.payload?.body as PanoBody | HostedBodyLike);
     return true;
   }
   if (data.type === 'POLL_WORKFLOW' || data.type === 'CANCEL_WORKFLOW') {
