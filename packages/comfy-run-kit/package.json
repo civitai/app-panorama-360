@@ -1,0 +1,32 @@
+{
+  "name": "@civitai/comfy-run-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "First-class customComfy run experience for the Civitai orchestrator: live progress (poll + trace tail), buzz meter, queue state, previews, logs, and cancel — headless core + framework-free custom elements.",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bridge": "./src/bridge-gateway.ts",
+    "./elements": "./src/elements.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.js",
+      "./bridge": "./dist/bridge-gateway.js",
+      "./elements": "./dist/elements.js"
+    }
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@civitai/app-sdk": ">=0.14",
+    "@civitai/blocks-react": ">=0.18"
+  },
+  "peerDependenciesMeta": {
+    "@civitai/app-sdk": { "optional": true },
+    "@civitai/blocks-react": { "optional": true }
+  }
+}
