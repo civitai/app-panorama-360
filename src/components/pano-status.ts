@@ -76,6 +76,12 @@ export class PanoStatus extends HTMLElement {
             `Done — spent ${formatCost(state.actualCost)} Buzz${note ? ` from your ${note} account` : ''}. Drag the panorama to look around.`,
           ),
         );
+        // The run card is hidden on success — keep the workflow id reachable.
+        if (state.run?.workflowId) {
+          const idEl = document.createElement('civitai-run-id');
+          idEl.state = state.run;
+          this.#alerts.appendChild(idEl);
+        }
         break;
       }
       case 'insufficient':

@@ -61,6 +61,19 @@ pre {
   white-space: pre-wrap; word-break: break-word;
 }
 details > summary { cursor: pointer; font-weight: 600; font-size: 12px; }
+.runid { font-size: 11px; }
+.runid-value {
+  font-size: 11px; user-select: all;
+  background: var(--crk-code-bg, rgba(0, 0, 0, 0.05));
+  padding: 1px 6px; border-radius: 4px;
+}
+button.runid-copy {
+  padding: 1px 8px; border-radius: 4px;
+  border: 1px solid var(--crk-border, #dee2e6);
+  background: transparent; color: var(--crk-muted, #868e96);
+  font: inherit; font-size: 11px; cursor: pointer;
+}
+button.runid-copy:focus-visible { outline: 2px solid var(--crk-accent, #0b7285); outline-offset: 1px; }
 img.preview {
   display: block; width: 100%; border-radius: 6px;
   border: 1px solid var(--crk-border, #dee2e6);

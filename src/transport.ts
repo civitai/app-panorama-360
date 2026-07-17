@@ -1,6 +1,3 @@
-// Framework-free bridge to the Civitai Apps host — the SDK's transport classes
-// carry no React (only its hooks do), so this wraps the singleton directly.
-
 import { getTransport, sendTypedRequest } from '@civitai/blocks-react';
 import type { BlockSnapshot, BlockTransport } from '@civitai/blocks-react';
 import type {

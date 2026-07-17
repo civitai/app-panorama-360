@@ -161,6 +161,37 @@ describe('<civitai-run-logs>', () => {
   });
 });
 
+describe('<civitai-run-id>', () => {
+  it('hides without an id, shows it in every phase once known', () => {
+    const el = mount('civitai-run-id');
+    el.state = state({ phase: 'submitting' });
+    expect(el.hidden).toBe(true);
+
+    for (const phase of ['queued', 'running', 'succeeded', 'failed', 'canceled'] as const) {
+      el.state = state({ phase, workflowId: 'wf_abc123' });
+      expect(el.hidden).toBe(false);
+      expect(shadowText(el)).toContain('wf_abc123');
+    }
+  });
+
+  it('copies the id to the clipboard and flashes the button', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    try {
+      const el = mount('civitai-run-id');
+      el.state = running();
+      const btn = el.shadowRoot!.querySelector<HTMLButtonElement>('button.runid-copy')!;
+      btn.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(writeText).toHaveBeenCalledWith('wf_1');
+      expect(btn.textContent).toBe('Copied');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('<civitai-comfy-run>', () => {
   it('projects a pushed state into all children', () => {
     const el = mount('civitai-comfy-run');
@@ -168,6 +199,7 @@ describe('<civitai-comfy-run>', () => {
     const status = el.shadowRoot!.querySelector('civitai-run-status')!;
     expect(status.state.phase).toBe('running');
     expect(el.shadowRoot!.querySelector('civitai-run-logs')!.state.logs).toEqual(['x']);
+    expect(shadowText(el.shadowRoot!.querySelector('civitai-run-id')!)).toContain('wf_1');
   });
 
   it('subscribes to a controller and unsubscribes on disconnect', () => {

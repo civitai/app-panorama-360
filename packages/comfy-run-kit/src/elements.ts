@@ -2,19 +2,28 @@
 
 import { BuzzMeterElement } from './elements/buzz-meter-element.js';
 import { ComfyRunElement } from './elements/comfy-run.js';
+import { RunIdElement } from './elements/run-id.js';
 import { RunLogsElement } from './elements/run-logs.js';
 import { RunPreviewElement } from './elements/run-preview.js';
 import { RunStatusElement } from './elements/run-status.js';
 
 export { RunStateElement } from './elements/base.js';
 export { RUN_CANCEL_EVENT } from './elements/run-status.js';
-export { BuzzMeterElement, ComfyRunElement, RunLogsElement, RunPreviewElement, RunStatusElement };
+export {
+  BuzzMeterElement,
+  ComfyRunElement,
+  RunIdElement,
+  RunLogsElement,
+  RunPreviewElement,
+  RunStatusElement,
+};
 
 const DEFINITIONS: ReadonlyArray<[string, CustomElementConstructor]> = [
   ['civitai-run-status', RunStatusElement],
   ['civitai-buzz-meter', BuzzMeterElement],
   ['civitai-run-preview', RunPreviewElement],
   ['civitai-run-logs', RunLogsElement],
+  ['civitai-run-id', RunIdElement],
   ['civitai-comfy-run', ComfyRunElement],
 ];
 
@@ -30,6 +39,7 @@ declare global {
     'civitai-buzz-meter': BuzzMeterElement;
     'civitai-run-preview': RunPreviewElement;
     'civitai-run-logs': RunLogsElement;
+    'civitai-run-id': RunIdElement;
     'civitai-comfy-run': ComfyRunElement;
   }
 }

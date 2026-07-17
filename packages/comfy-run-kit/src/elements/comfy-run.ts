@@ -13,6 +13,7 @@ const CHILDREN = [
   'civitai-buzz-meter',
   'civitai-run-preview',
   'civitai-run-logs',
+  'civitai-run-id',
 ] as const;
 
 export class ComfyRunElement extends HTMLElement {

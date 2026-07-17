@@ -186,6 +186,10 @@ describe('<pano-app>', () => {
     expect(viewerInstances).toHaveLength(1);
     expect(viewerInstances[0].panorama).toBe('https://blob/pano.png');
     expect(app.querySelector('[data-testid=pn-alert-success]')?.textContent).toContain('42');
+
+    // The run card is gone on success — the workflow id must still be readable.
+    const idEl = app.querySelector('civitai-run-id');
+    expect(idEl?.shadowRoot?.textContent).toContain('wf_1');
   });
 
   it('anonymous viewer: generate routes to sign-in', async () => {
