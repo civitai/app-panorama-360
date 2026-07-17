@@ -210,7 +210,9 @@ export class PanoApp extends HTMLElement {
       return;
     }
     request.mode = this.#controls.mode;
-    if (this.#checkpoint && (request.mode === 'seamless' || request.mode === 'hosted')) {
+    // Only the hosted (Standard) textToImage path reads a checkpoint; the
+    // bounded DiT recipe owns its models server-side.
+    if (this.#checkpoint && request.mode === 'hosted') {
       request.checkpoint = { modelId: this.#checkpoint.modelId, versionId: this.#checkpoint.versionId };
     }
     if (!session.canGenerate()) {

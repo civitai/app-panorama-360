@@ -90,14 +90,15 @@ describe('buildPanoBody / prompts', () => {
 });
 
 describe('buildCustomComfyBody (real-bridge recipe body)', () => {
-  it('sdxl seamless: bounded recipe, engine omitted (recipe default), prompt clamped', () => {
+  it('DiT engine: bounded recipe, engine always set, prompt clamped, no checkpoint', () => {
     const long = 'x'.repeat(PROMPT_MAX + 100);
-    const body = buildCustomComfyBody(`  ${long}  `);
+    const body = buildCustomComfyBody(`  ${long}  `, undefined, undefined, 'zimage-turbo');
     expect(body.kind).toBe('customComfy');
     expect(body.recipe).toBe(CUSTOM_COMFY_RECIPE);
     expect(body.recipe).toBe('seamless-pano-360');
     expect(body.params.prompt.length).toBe(PROMPT_MAX);
-    expect('engine' in body.params).toBe(false);
+    // v1 is DiT-only: the engine is ALWAYS set (never omitted / SDXL conv-wrap).
+    expect(body.params.engine).toBe('zimage-turbo');
     expect('seed' in body.params).toBe(false);
     expect('accountType' in body.params).toBe(false);
     // The bounded recipe owns the checkpoint server-side — no override field.
@@ -126,7 +127,9 @@ describe('buildCustomComfyBody (real-bridge recipe body)', () => {
 
 describe('isCustomComfyBody', () => {
   it('accepts only the bounded recipe body', () => {
-    expect(isCustomComfyBody(buildCustomComfyBody('a lake'))).toBe(true);
+    expect(isCustomComfyBody(buildCustomComfyBody('a lake', undefined, undefined, 'zimage-turbo'))).toBe(
+      true,
+    );
     expect(isCustomComfyBody(buildPanoBody('a lake'))).toBe(false);
     expect(isCustomComfyBody(buildHostedBody('a lake'))).toBe(false);
     expect(isCustomComfyBody({ kind: 'customComfy', recipe: 'other', params: {} })).toBe(false);
@@ -135,8 +138,14 @@ describe('isCustomComfyBody', () => {
 });
 
 describe('customComfyToPanoBody (dev:orch fallback translation)', () => {
-  it('sdxl (no engine) → pano360 body, no engine, default checkpoint', () => {
-    const pano = customComfyToPanoBody(buildCustomComfyBody('a lake', 7, 'green'));
+  it('legacy engine-omitted body → pano360 body, no engine, default checkpoint', () => {
+    // v1 never builds an engine-omitted body, but the dev:orch fallback still
+    // defensively maps a legacy one (omitted → the SDXL conv-wrap default).
+    const pano = customComfyToPanoBody({
+      kind: 'customComfy',
+      recipe: CUSTOM_COMFY_RECIPE,
+      params: { prompt: 'a lake', seed: 7, accountType: 'green' },
+    });
     expect(pano).toEqual({ kind: 'pano360', prompt: 'a lake', seed: 7, accountType: 'green' });
     expect('engine' in pano).toBe(false);
     expect('checkpoint' in pano).toBe(false);

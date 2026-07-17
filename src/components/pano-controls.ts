@@ -11,19 +11,22 @@ export interface ControlsCheckpoint {
 }
 
 const MODE_NOTES: Record<PanoMode, string> = {
-  seamless:
-    'Truly seamless — the edges are painted as continuations of each other. Any SDXL checkpoint. ~30-90 Buzz.',
   zimage:
-    'Z-Image Turbo — fastest and cheapest; the wrap seam is healed with an inpaint pass. ~15-25 Buzz.',
+    'Z-Image Turbo — truly seamless, fastest and cheapest; the wrap seam is healed with an inpaint pass. ~15-25 Buzz.',
   flux2:
-    'FLUX.2 Klein 9B — strong prompt following; the wrap seam is healed with an inpaint pass. ~30-60 Buzz.',
+    'FLUX.2 Klein 9B — truly seamless, strong prompt following; the wrap seam is healed with an inpaint pass. ~30-60 Buzz.',
   qwen:
-    'Qwen Image (20B) — best prompt adherence, slowest; the wrap seam is healed with an inpaint pass. ~120-180 Buzz.',
-  hosted: 'Standard SDXL generation: expect a visible seam where the edges meet.',
+    'Qwen Image (20B) — truly seamless, best prompt adherence, slowest; the wrap seam is healed with an inpaint pass. ~120-180 Buzz.',
+  hosted:
+    'Standard SDXL generation with your chosen checkpoint: expect a visible seam where the edges meet. (SDXL seamless is coming in a later release.)',
 };
 
-/** Modes that run on an SDXL checkpoint (and can therefore pick one). */
-const SDXL_MODES: ReadonlySet<PanoMode> = new Set(['seamless', 'hosted']);
+/**
+ * Modes that pick their own SDXL checkpoint. Only the hosted (Standard)
+ * textToImage path reads a checkpoint — the bounded DiT recipe owns its models
+ * server-side, so a pick would do nothing there.
+ */
+const CHECKPOINT_MODES: ReadonlySet<PanoMode> = new Set<PanoMode>(['hosted']);
 
 export class PanoControls extends HTMLElement {
   #busy = false;
@@ -68,7 +71,7 @@ export class PanoControls extends HTMLElement {
   /** Whether the customComfy modes (all but Standard) can run against this host. */
   set seamlessAvailable(value: boolean) {
     this.#seamlessAvailable = value;
-    if (value && this.#mode === 'hosted') this.#mode = 'seamless';
+    if (value && this.#mode === 'hosted') this.#mode = 'zimage';
     if (!value && this.#mode !== 'hosted') this.#mode = 'hosted';
     this.#sync();
   }
@@ -134,8 +137,7 @@ export class PanoControls extends HTMLElement {
     modeRow.setAttribute('role', 'radiogroup');
     modeRow.setAttribute('aria-label', 'Panorama model');
     const modes: Array<{ mode: PanoMode; label: string }> = [
-      { mode: 'seamless', label: 'SDXL · Recommended' },
-      { mode: 'zimage', label: 'Z-Image Turbo' },
+      { mode: 'zimage', label: 'Z-Image Turbo · Recommended' },
       { mode: 'flux2', label: 'Flux2 Klein' },
       { mode: 'qwen', label: 'Qwen Image' },
       { mode: 'hosted', label: 'Standard' },
@@ -160,7 +162,8 @@ export class PanoControls extends HTMLElement {
     this.#modeNote = el('span', 'pn-desc');
     modeField.append(modeRow, this.#modeNote);
 
-    // SDXL checkpoint row — hidden in the DiT modes (each has one base model).
+    // SDXL checkpoint row — shown only for Standard/hosted; the bounded DiT
+    // recipe owns its models server-side, so the picker is hidden there.
     this.#modelField = el('div', 'pn-field');
     this.#modelField.appendChild(el('span', 'pn-label', 'Checkpoint'));
     const modelRow = el('div', 'pn-row');
@@ -226,7 +229,7 @@ export class PanoControls extends HTMLElement {
       ? MODE_NOTES[this.#mode]
       : 'Seamless modes need the customComfy bridge — this host runs standard generations, which show a seam where the edges meet.';
 
-    this.#modelField.hidden = !SDXL_MODES.has(this.#mode);
+    this.#modelField.hidden = !CHECKPOINT_MODES.has(this.#mode);
     this.#modelNameEl.textContent = this.#checkpoint?.name ?? CHECKPOINT_DEFAULT_NAME;
     this.#modelChangeBtn.disabled = this.#busy;
     this.#modelResetBtn.disabled = this.#busy;

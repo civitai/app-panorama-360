@@ -148,11 +148,12 @@ describe('<pano-controls>', () => {
     (controls.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
 
     expect(events).toHaveLength(1);
-    expect(events[0].detail).toMatchObject({ mode: 'seamless', seed: 42 });
+    // Default seamless mode is now Z-Image (the SDXL conv-wrap mode is gone in v1).
+    expect(events[0].detail).toMatchObject({ mode: 'zimage', seed: 42 });
     expect(events[0].detail.prompt).toContain('icy lake');
   });
 
-  it('empty prompt does not emit; seamless chip disabled when unavailable', () => {
+  it('empty prompt does not emit; DiT chips disabled when unavailable', () => {
     const controls = document.createElement('pano-controls') as PanoControls;
     document.body.appendChild(controls);
     controls.seamlessAvailable = false;
@@ -162,8 +163,10 @@ describe('<pano-controls>', () => {
     (controls.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
     expect(events).toHaveLength(0);
 
-    const seamlessBtn = controls.querySelector('[data-testid=pn-mode-seamless]') as HTMLButtonElement;
-    expect(seamlessBtn.disabled).toBe(true);
+    const zimageBtn = controls.querySelector('[data-testid=pn-mode-zimage]') as HTMLButtonElement;
+    expect(zimageBtn.disabled).toBe(true);
+    // No SDXL conv-wrap chip is offered in v1.
+    expect(controls.querySelector('[data-testid=pn-mode-seamless]')).toBeNull();
     expect(controls.mode).toBe('hosted');
   });
 });
@@ -181,7 +184,12 @@ describe('<pano-app>', () => {
 
     expect(session.estimate).toHaveBeenCalled();
     expect(submitted).toHaveLength(1);
-    expect(submitted[0]).toMatchObject({ kind: 'customComfy', recipe: 'seamless-pano-360' });
+    // Default mode is Z-Image → the bounded recipe with its DiT engine set.
+    expect(submitted[0]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'zimage-turbo' },
+    });
 
     expect(viewerInstances).toHaveLength(1);
     expect(viewerInstances[0].panorama).toBe('https://blob/pano.png');
@@ -286,17 +294,20 @@ describe('<pano-app>', () => {
     expect(submitted[0]).not.toHaveProperty('checkpoint');
   });
 
-  it('offers all five model chips; flux2/qwen hide the checkpoint row and submit their engines', async () => {
+  it('offers exactly the four v1 chips (no SDXL conv-wrap); the checkpoint row is hosted-only', async () => {
     const { session, submitted } = makeSession();
     const app = mountApp(session);
     await flush();
 
-    for (const mode of ['seamless', 'zimage', 'flux2', 'qwen', 'hosted']) {
+    // v1 lineup: three DiT seamless engines + Standard/hosted. No 'seamless'.
+    for (const mode of ['zimage', 'flux2', 'qwen', 'hosted']) {
       expect(app.querySelector(`[data-testid=pn-mode-${mode}]`)).toBeTruthy();
     }
+    expect(app.querySelector('[data-testid=pn-mode-seamless]')).toBeNull();
     const checkpointRow = app.querySelector('[data-testid=pn-model-name]')?.parentElement
       ?.parentElement as HTMLElement;
 
+    // Each DiT mode hides the checkpoint picker (the recipe owns models).
     (app.querySelector('[data-testid=pn-mode-flux2]') as HTMLButtonElement).click();
     expect(checkpointRow.hidden).toBe(true);
     (app.querySelector('[data-testid=pn-preset-alpine]') as HTMLButtonElement).click();
@@ -318,7 +329,11 @@ describe('<pano-app>', () => {
       params: { engine: 'qwen-image' },
     });
 
-    (app.querySelector('[data-testid=pn-mode-seamless]') as HTMLButtonElement).click();
+    (app.querySelector('[data-testid=pn-mode-zimage]') as HTMLButtonElement).click();
+    expect(checkpointRow.hidden).toBe(true);
+
+    // ONLY Standard/hosted shows the checkpoint picker.
+    (app.querySelector('[data-testid=pn-mode-hosted]') as HTMLButtonElement).click();
     expect(checkpointRow.hidden).toBe(false);
   });
 

@@ -10,7 +10,6 @@ import {
   FLUX2_ESTIMATE_BUZZ,
   FLUX2_NODE_LABELS,
   PANORAMA_ESTIMATE_BUZZ,
-  PANO_NODE_LABELS,
   QWEN_ESTIMATE_BUZZ,
   QWEN_NODE_LABELS,
   STANDARD_NODE_LABELS,
@@ -19,30 +18,31 @@ import {
   buildCustomComfyBody,
   buildHostedBody,
   type CustomComfyBody,
+  type DitEngine,
   type PanoCheckpoint,
-  type PanoEngine,
   type PanoMode,
 } from './panorama.js';
 
 /** The pre-estimate cost shown per mode (refined by the bridge estimate). */
 export const MODE_ESTIMATE_BUZZ: Record<PanoMode, number> = {
-  seamless: PANORAMA_ESTIMATE_BUZZ,
   zimage: ZIMAGE_ESTIMATE_BUZZ,
   flux2: FLUX2_ESTIMATE_BUZZ,
   qwen: QWEN_ESTIMATE_BUZZ,
   hosted: PANORAMA_ESTIMATE_BUZZ,
 };
 
-/** Which server-side recipe each customComfy mode translates to. */
-export const MODE_ENGINE: Record<Exclude<PanoMode, 'hosted'>, PanoEngine> = {
-  seamless: 'sdxl',
+/**
+ * Which server-side DiT engine each customComfy (non-hosted) mode runs. v1 is
+ * DiT-only, so every value is a `DitEngine` — no mode maps to the SDXL
+ * conv-wrap recipe. `hosted` is the plain textToImage path (no engine).
+ */
+export const MODE_ENGINE: Record<Exclude<PanoMode, 'hosted'>, DitEngine> = {
   zimage: 'zimage-turbo',
   flux2: 'flux2-klein',
   qwen: 'qwen-image',
 };
 
 const MODE_NODE_LABELS: Record<PanoMode, Record<string, string>> = {
-  seamless: PANO_NODE_LABELS,
   zimage: ZIMAGE_NODE_LABELS,
   flux2: FLUX2_NODE_LABELS,
   qwen: QWEN_NODE_LABELS,
@@ -85,8 +85,8 @@ export interface ControllerState {
 
 const INITIAL: ControllerState = {
   phase: 'idle',
-  mode: 'seamless',
-  estimatedCost: PANORAMA_ESTIMATE_BUZZ,
+  mode: 'zimage',
+  estimatedCost: ZIMAGE_ESTIMATE_BUZZ,
   actualCost: null,
   imageUrls: [],
   imageUrl: null,

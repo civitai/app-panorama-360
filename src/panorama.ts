@@ -8,9 +8,17 @@ import type { OrchWorkflowDoc } from '@civitai/comfy-run-kit';
 // `pano360` kind is this app's PROPOSED server-owned contract (bounded knobs,
 // never a raw graph); orch-host.ts stands in for the missing platform side.
 
-export type PanoMode = 'seamless' | 'zimage' | 'flux2' | 'qwen' | 'hosted';
+// v1 user-facing modes: the three DiT seamless engines ride the bounded
+// customComfy recipe, and `hosted` is the plain SDXL textToImage path (seam
+// visible, checkpoint-pickable). The old SDXL conv-wrap `seamless` mode is
+// deferred to v2 (it needs nodepack baking) — it is NOT offered in v1.
+export type PanoMode = 'zimage' | 'flux2' | 'qwen' | 'hosted';
 
-/** Which generation recipe the server-owned translation runs. */
+/**
+ * Which generation recipe the server-owned translation runs. `sdxl` is the
+ * legacy conv-wrap engine — retained only for the `dev:orch` local fallback +
+ * the legacy `pano360` body; no v1 user-facing mode maps to it.
+ */
 export type PanoEngine = 'sdxl' | 'zimage-turbo' | 'flux2-klein' | 'qwen-image';
 
 /** A picked SDXL checkpoint (from the host's checkpoint picker). */
@@ -230,9 +238,9 @@ export function buildPanoBody(
 export const CUSTOM_COMFY_RECIPE = 'seamless-pano-360' as const;
 
 /**
- * The recipe's bounded engine enum. It is exactly this app's DiT engines
- * (`DitEngine`); the SDXL conv-wrap `seamless` mode maps to the recipe DEFAULT
- * (engine omitted) — the server owns that graph too. See `MODE_ENGINE`.
+ * The recipe's bounded engine enum — exactly this app's DiT engines
+ * (`DitEngine`). v1 is DiT-only: every customComfy body carries one of these
+ * (the SDXL conv-wrap path is deferred to v2). See `MODE_ENGINE`.
  */
 export type RecipeEngine = DitEngine;
 
@@ -240,7 +248,7 @@ export interface CustomComfyParams {
   prompt: string;
   /** Sampler seed; omit for random. `null` is treated as omitted. */
   seed?: number | null;
-  /** Omitted = the recipe's default (SDXL seamless conv-wrap). */
+  /** The DiT seamless engine this recipe runs (v1 always sets one). */
   engine?: RecipeEngine;
   /** Preferred Buzz pool; omitted = host-chosen (Auto). */
   accountType?: BuzzAccountType;
@@ -253,21 +261,20 @@ export interface CustomComfyBody {
 }
 
 /**
- * The real-bridge body for the seamless/DiT modes. `engine` is the recipe enum
- * — the app's `sdxl` engine name reconciles to "omitted" (recipe default),
- * `zimage-turbo`/`flux2-klein`/`qwen-image` pass straight through. The bounded
- * recipe owns the checkpoint server-side, so (unlike the old `pano360` body)
- * there is no checkpoint override here.
+ * The real-bridge body for the DiT seamless modes. `engine` is the recipe enum
+ * — one of `zimage-turbo`/`flux2-klein`/`qwen-image`, always set (v1 is
+ * DiT-only, so no engine-omitted / SDXL-conv-wrap body is ever built here). The
+ * bounded recipe owns the checkpoint server-side, so (unlike the old `pano360`
+ * body) there is no checkpoint override.
  */
 export function buildCustomComfyBody(
   prompt: string,
-  seed?: number,
-  accountType?: BuzzAccountType,
-  engine: PanoEngine = 'sdxl',
+  seed: number | undefined,
+  accountType: BuzzAccountType | undefined,
+  engine: DitEngine,
 ): CustomComfyBody {
-  const params: CustomComfyParams = { prompt: clampPrompt(prompt) };
+  const params: CustomComfyParams = { prompt: clampPrompt(prompt), engine };
   if (seed !== undefined) params.seed = seed;
-  if (engine !== 'sdxl') params.engine = engine;
   if (accountType) params.accountType = accountType;
   return { kind: 'customComfy', recipe: CUSTOM_COMFY_RECIPE, params };
 }
