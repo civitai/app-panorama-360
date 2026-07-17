@@ -38,10 +38,14 @@ import {
   ZIMAGE_LORA_AIR,
   ZIMAGE_TRIGGER_WORDS,
   ZIMAGE_VAE_AIR,
+  CUSTOM_COMFY_RECIPE,
+  buildCustomComfyBody,
   buildDitSeamlessTemplate,
   buildFlux2SeamlessGraph,
   buildHostedBody,
   buildPanoBody,
+  customComfyToPanoBody,
+  isCustomComfyBody,
   buildQwenSeamlessGraph,
   buildSeamlessGraph,
   buildSeamlessTemplate,
@@ -82,6 +86,66 @@ describe('buildPanoBody / prompts', () => {
     expect(p.startsWith(TRIGGER_WORDS)).toBe(true);
     expect(p).toContain('an icy lake');
     expect(clampPrompt('  padded  ')).toBe('padded');
+  });
+});
+
+describe('buildCustomComfyBody (real-bridge recipe body)', () => {
+  it('sdxl seamless: bounded recipe, engine omitted (recipe default), prompt clamped', () => {
+    const long = 'x'.repeat(PROMPT_MAX + 100);
+    const body = buildCustomComfyBody(`  ${long}  `);
+    expect(body.kind).toBe('customComfy');
+    expect(body.recipe).toBe(CUSTOM_COMFY_RECIPE);
+    expect(body.recipe).toBe('seamless-pano-360');
+    expect(body.params.prompt.length).toBe(PROMPT_MAX);
+    expect('engine' in body.params).toBe(false);
+    expect('seed' in body.params).toBe(false);
+    expect('accountType' in body.params).toBe(false);
+    // The bounded recipe owns the checkpoint server-side — no override field.
+    expect(body).not.toHaveProperty('checkpoint');
+  });
+
+  it('carries seed, accountType and the DiT engine when set', () => {
+    const body = buildCustomComfyBody('a lake', 42, 'yellow', 'zimage-turbo');
+    expect(body.params).toEqual({
+      prompt: 'a lake',
+      seed: 42,
+      accountType: 'yellow',
+      engine: 'zimage-turbo',
+    });
+  });
+
+  it('passes each DiT engine straight through as the recipe enum', () => {
+    expect(buildCustomComfyBody('s', undefined, undefined, 'flux2-klein').params.engine).toBe(
+      'flux2-klein',
+    );
+    expect(buildCustomComfyBody('s', undefined, undefined, 'qwen-image').params.engine).toBe(
+      'qwen-image',
+    );
+  });
+});
+
+describe('isCustomComfyBody', () => {
+  it('accepts only the bounded recipe body', () => {
+    expect(isCustomComfyBody(buildCustomComfyBody('a lake'))).toBe(true);
+    expect(isCustomComfyBody(buildPanoBody('a lake'))).toBe(false);
+    expect(isCustomComfyBody(buildHostedBody('a lake'))).toBe(false);
+    expect(isCustomComfyBody({ kind: 'customComfy', recipe: 'other', params: {} })).toBe(false);
+    expect(isCustomComfyBody(null)).toBe(false);
+  });
+});
+
+describe('customComfyToPanoBody (dev:orch fallback translation)', () => {
+  it('sdxl (no engine) → pano360 body, no engine, default checkpoint', () => {
+    const pano = customComfyToPanoBody(buildCustomComfyBody('a lake', 7, 'green'));
+    expect(pano).toEqual({ kind: 'pano360', prompt: 'a lake', seed: 7, accountType: 'green' });
+    expect('engine' in pano).toBe(false);
+    expect('checkpoint' in pano).toBe(false);
+  });
+
+  it('carries the DiT engine so the fallback picks the right template', () => {
+    const pano = customComfyToPanoBody(buildCustomComfyBody('a lake', undefined, undefined, 'qwen-image'));
+    expect(pano.engine).toBe('qwen-image');
+    expect('seed' in pano).toBe(false);
   });
 });
 

@@ -85,18 +85,24 @@ describe('GenerationController', () => {
     expect(phases).toContain('submitting');
   });
 
-  it('submits a pano360 body in seamless mode and textToImage in hosted mode', async () => {
+  it('submits a customComfy recipe body in seamless mode and textToImage in hosted mode', async () => {
     const bridge = makeBridge();
     const controller = new GenerationController(bridge);
 
     await controller.generate({ prompt: 'a lake', mode: 'seamless' });
     await controller.generate({ prompt: 'a lake', mode: 'hosted' });
 
-    expect((bridge.submitted[0] as { kind: string }).kind).toBe('pano360');
+    // Seamless (sdxl) rides the real bridge as the bounded recipe with the
+    // engine OMITTED (recipe default); hosted stays a plain textToImage body.
+    expect(bridge.submitted[0]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+    });
+    expect((bridge.submitted[0] as { params: object }).params).not.toHaveProperty('engine');
     expect((bridge.submitted[1] as { kind: string }).kind).toBe('textToImage');
   });
 
-  it('zimage mode submits the zimage-turbo engine; checkpoint threads through others', async () => {
+  it('zimage mode submits the zimage-turbo engine; the bounded recipe owns the checkpoint', async () => {
     const bridge = makeBridge();
     const controller = new GenerationController(bridge);
     const checkpoint = { modelId: 112902, versionId: 126688 };
@@ -105,9 +111,16 @@ describe('GenerationController', () => {
     await controller.generate({ prompt: 'a lake', mode: 'seamless', checkpoint });
     await controller.generate({ prompt: 'a lake', mode: 'hosted', checkpoint });
 
-    expect(bridge.submitted[0]).toMatchObject({ kind: 'pano360', engine: 'zimage-turbo' });
+    expect(bridge.submitted[0]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'zimage-turbo' },
+    });
+    // The customComfy recipe body has no client checkpoint — the server owns
+    // the graph + checkpoint. Only hosted (textToImage) honours the picker.
     expect(bridge.submitted[0]).not.toHaveProperty('checkpoint');
-    expect(bridge.submitted[1]).toMatchObject({ kind: 'pano360', checkpoint });
+    expect(bridge.submitted[1]).toMatchObject({ kind: 'customComfy', recipe: 'seamless-pano-360' });
+    expect(bridge.submitted[1]).not.toHaveProperty('checkpoint');
     expect(bridge.submitted[2]).toMatchObject({
       kind: 'textToImage',
       modelId: 112902,
@@ -115,7 +128,7 @@ describe('GenerationController', () => {
     });
   });
 
-  it('flux2 and qwen modes submit their DiT engines (checkpoint dropped)', async () => {
+  it('flux2 and qwen modes submit their DiT engines on the bounded recipe', async () => {
     const bridge = makeBridge();
     const controller = new GenerationController(bridge);
     const checkpoint = { modelId: 112902, versionId: 126688 };
@@ -123,9 +136,17 @@ describe('GenerationController', () => {
     await controller.generate({ prompt: 'a lake', mode: 'flux2', checkpoint });
     await controller.generate({ prompt: 'a lake', mode: 'qwen', checkpoint });
 
-    expect(bridge.submitted[0]).toMatchObject({ kind: 'pano360', engine: 'flux2-klein' });
+    expect(bridge.submitted[0]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'flux2-klein' },
+    });
     expect(bridge.submitted[0]).not.toHaveProperty('checkpoint');
-    expect(bridge.submitted[1]).toMatchObject({ kind: 'pano360', engine: 'qwen-image' });
+    expect(bridge.submitted[1]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'qwen-image' },
+    });
     expect(bridge.submitted[1]).not.toHaveProperty('checkpoint');
   });
 

@@ -224,7 +224,7 @@ export class PanoControls extends HTMLElement {
     }
     this.#modeNote.textContent = this.#seamlessAvailable
       ? MODE_NOTES[this.#mode]
-      : 'Seamless modes need the customComfy bridge (dev:orch) — this host runs standard generations, which show a seam where the edges meet.';
+      : 'Seamless modes need the customComfy bridge — this host runs standard generations, which show a seam where the edges meet.';
 
     this.#modelField.hidden = !SDXL_MODES.has(this.#mode);
     this.#modelNameEl.textContent = this.#checkpoint?.name ?? CHECKPOINT_DEFAULT_NAME;

@@ -181,7 +181,7 @@ describe('<pano-app>', () => {
 
     expect(session.estimate).toHaveBeenCalled();
     expect(submitted).toHaveLength(1);
-    expect((submitted[0] as { kind: string }).kind).toBe('pano360');
+    expect(submitted[0]).toMatchObject({ kind: 'customComfy', recipe: 'seamless-pano-360' });
 
     expect(viewerInstances).toHaveLength(1);
     expect(viewerInstances[0].panorama).toBe('https://blob/pano.png');
@@ -226,7 +226,7 @@ describe('<pano-app>', () => {
     expect(app.querySelector('.pn-balance')?.textContent).toContain('Total 60 Buzz');
   });
 
-  it('checkpoint pick flow: picker result labels the row and rides the submit', async () => {
+  it('checkpoint pick flow: picker result labels the row and rides the hosted submit', async () => {
     const { session, submitted } = makeSession({
       checkpointPick: {
         versionId: 126688,
@@ -249,11 +249,15 @@ describe('<pano-app>', () => {
     expect(reset.hidden).toBe(false);
 
     (app.querySelector('[data-testid=pn-preset-alpine]') as HTMLButtonElement).click();
+    // The bounded customComfy recipe owns the checkpoint server-side; the
+    // picker override only rides the hosted (textToImage) path now.
+    (app.querySelector('[data-testid=pn-mode-hosted]') as HTMLButtonElement).click();
     (app.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
     await flush();
     expect(submitted[0]).toMatchObject({
-      kind: 'pano360',
-      checkpoint: { modelId: 112902, versionId: 126688 },
+      kind: 'textToImage',
+      modelId: 112902,
+      modelVersionId: 126688,
     });
 
     reset.click();
@@ -274,7 +278,11 @@ describe('<pano-app>', () => {
     (app.querySelector('[data-testid=pn-preset-alpine]') as HTMLButtonElement).click();
     (app.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
     await flush();
-    expect(submitted[0]).toMatchObject({ kind: 'pano360', engine: 'zimage-turbo' });
+    expect(submitted[0]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'zimage-turbo' },
+    });
     expect(submitted[0]).not.toHaveProperty('checkpoint');
   });
 
@@ -294,13 +302,21 @@ describe('<pano-app>', () => {
     (app.querySelector('[data-testid=pn-preset-alpine]') as HTMLButtonElement).click();
     (app.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
     await flush();
-    expect(submitted[0]).toMatchObject({ kind: 'pano360', engine: 'flux2-klein' });
+    expect(submitted[0]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'flux2-klein' },
+    });
 
     (app.querySelector('[data-testid=pn-mode-qwen]') as HTMLButtonElement).click();
     expect(checkpointRow.hidden).toBe(true);
     (app.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
     await flush();
-    expect(submitted[1]).toMatchObject({ kind: 'pano360', engine: 'qwen-image' });
+    expect(submitted[1]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'qwen-image' },
+    });
 
     (app.querySelector('[data-testid=pn-mode-seamless]') as HTMLButtonElement).click();
     expect(checkpointRow.hidden).toBe(false);

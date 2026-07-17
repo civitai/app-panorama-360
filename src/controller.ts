@@ -16,8 +16,9 @@ import {
   STANDARD_NODE_LABELS,
   ZIMAGE_ESTIMATE_BUZZ,
   ZIMAGE_NODE_LABELS,
+  buildCustomComfyBody,
   buildHostedBody,
-  buildPanoBody,
+  type CustomComfyBody,
   type PanoCheckpoint,
   type PanoEngine,
   type PanoMode,
@@ -50,7 +51,9 @@ const MODE_NODE_LABELS: Record<PanoMode, Record<string, string>> = {
 
 /** What the controller needs from the host bridge. */
 export interface WorkflowBridge {
-  estimate(body: WorkflowBody): Promise<BlockWorkflowSnapshot>;
+  // `CustomComfyBody` is the interim local type until SDK 0.26/0.33 (PR #171)
+  // add the `customComfy` arm to `WorkflowBody`; see panorama.ts.
+  estimate(body: WorkflowBody | CustomComfyBody): Promise<BlockWorkflowSnapshot>;
   /** Where submit/poll/cancel go — a kit gateway over the same transport. */
   gateway: RunGateway;
 }
@@ -136,15 +139,16 @@ export class GenerationController {
       startedAt: Date.now(),
     });
 
-    // The proposed pano360 kind rides through the same transport untyped —
-    // the bridge's published WorkflowBody union is textToImage-only today.
-    const body =
+    // Seamless/DiT modes now ride the REAL bridge as the server-owned bounded
+    // `customComfy` recipe (civitai #3228). The bounded recipe owns the graph
+    // AND the checkpoint, so no client checkpoint is threaded here (Standard/
+    // hosted textToImage still honours the picker). `CustomComfyBody` is the
+    // interim type until SDK 0.26/0.33 (PR #171); both `.estimate` and the
+    // gateway's `submit`/`start` accept it.
+    const body: WorkflowBody | CustomComfyBody =
       req.mode === 'hosted'
         ? buildHostedBody(req.prompt, req.seed, req.accountType, req.checkpoint)
-        : (buildPanoBody(req.prompt, req.seed, req.accountType, {
-            engine: MODE_ENGINE[req.mode],
-            ...(req.checkpoint !== undefined && { checkpoint: req.checkpoint }),
-          }) as unknown as WorkflowBody);
+        : buildCustomComfyBody(req.prompt, req.seed, req.accountType, MODE_ENGINE[req.mode]);
 
     try {
       const est = await this.bridge.estimate(body);

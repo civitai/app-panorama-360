@@ -213,6 +213,85 @@ export function buildPanoBody(
   return body;
 }
 
+// ── Real platform bridge: the bounded `customComfy` block-workflow ──────────
+// The platform now owns a bounded `kind:'customComfy'` recipe (civitai #3228):
+// the block sends only knobs, the SERVER owns the graph (a port of this app's
+// own DiT/seamless templates below). This is the body the RunController submits
+// on the REAL bridge — `pano360` + the client-side graph builders now serve
+// ONLY the optional `dev:orch` local fallback (orch-host.ts).
+//
+// TODO(sdk-0.26): drop `CustomComfyBody` and use `WorkflowBody`'s `customComfy`
+// arm once `@civitai/app-sdk@0.26` / `@civitai/blocks-react@0.33` (civitai-app-
+// starters PR #171) publish. Until then the union is textToImage-only, so we
+// carry this minimal local mirror of the server's recipe body and hand it to
+// `BridgeGateway.submit`/`RunController.start` (both take `unknown`).
+
+/** The server-owned recipe key this app's block workflows target. */
+export const CUSTOM_COMFY_RECIPE = 'seamless-pano-360' as const;
+
+/**
+ * The recipe's bounded engine enum. It is exactly this app's DiT engines
+ * (`DitEngine`); the SDXL conv-wrap `seamless` mode maps to the recipe DEFAULT
+ * (engine omitted) — the server owns that graph too. See `MODE_ENGINE`.
+ */
+export type RecipeEngine = DitEngine;
+
+export interface CustomComfyParams {
+  prompt: string;
+  /** Sampler seed; omit for random. `null` is treated as omitted. */
+  seed?: number | null;
+  /** Omitted = the recipe's default (SDXL seamless conv-wrap). */
+  engine?: RecipeEngine;
+  /** Preferred Buzz pool; omitted = host-chosen (Auto). */
+  accountType?: BuzzAccountType;
+}
+
+export interface CustomComfyBody {
+  kind: 'customComfy';
+  recipe: typeof CUSTOM_COMFY_RECIPE;
+  params: CustomComfyParams;
+}
+
+/**
+ * The real-bridge body for the seamless/DiT modes. `engine` is the recipe enum
+ * — the app's `sdxl` engine name reconciles to "omitted" (recipe default),
+ * `zimage-turbo`/`flux2-klein`/`qwen-image` pass straight through. The bounded
+ * recipe owns the checkpoint server-side, so (unlike the old `pano360` body)
+ * there is no checkpoint override here.
+ */
+export function buildCustomComfyBody(
+  prompt: string,
+  seed?: number,
+  accountType?: BuzzAccountType,
+  engine: PanoEngine = 'sdxl',
+): CustomComfyBody {
+  const params: CustomComfyParams = { prompt: clampPrompt(prompt) };
+  if (seed !== undefined) params.seed = seed;
+  if (engine !== 'sdxl') params.engine = engine;
+  if (accountType) params.accountType = accountType;
+  return { kind: 'customComfy', recipe: CUSTOM_COMFY_RECIPE, params };
+}
+
+export const isCustomComfyBody = (body: unknown): body is CustomComfyBody =>
+  typeof body === 'object' &&
+  body !== null &&
+  (body as { kind?: unknown }).kind === 'customComfy' &&
+  (body as { recipe?: unknown }).recipe === CUSTOM_COMFY_RECIPE;
+
+/**
+ * Translate a real-bridge `customComfy` body back into the internal `PanoBody`
+ * the dev:orch fallback's graph/template builders consume. Omitted engine →
+ * `sdxl` (the recipe default). The bounded recipe carries no checkpoint, so
+ * dev:orch uses the default SDXL checkpoint — matching the server-owned graph.
+ */
+export function customComfyToPanoBody(body: CustomComfyBody): PanoBody {
+  const pano: PanoBody = { kind: 'pano360', prompt: clampPrompt(body.params.prompt) };
+  if (typeof body.params.seed === 'number') pano.seed = body.params.seed;
+  if (body.params.accountType) pano.accountType = body.params.accountType;
+  if (body.params.engine) pano.engine = body.params.engine;
+  return pano;
+}
+
 export function positivePrompt(scene: string): string {
   return TRIGGER_WORDS + clampPrompt(scene) + PROMPT_SUFFIX;
 }
