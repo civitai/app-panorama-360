@@ -20,7 +20,16 @@ import type { OrchWorkflowDoc } from '@civitai/comfy-run-kit';
 // same 2:1 canvas) whose panorama has a visible seam where the edges meet.
 // ---------------------------------------------------------------------------
 
-export type PanoMode = 'seamless' | 'hosted';
+export type PanoMode = 'seamless' | 'zimage' | 'hosted';
+
+/** Which generation recipe the server-owned translation runs. */
+export type PanoEngine = 'sdxl' | 'zimage-turbo';
+
+/** A picked SDXL checkpoint (from the host's checkpoint picker). */
+export interface PanoCheckpoint {
+  modelId: number;
+  versionId: number;
+}
 
 export interface PanoBody {
   kind: 'pano360';
@@ -30,12 +39,21 @@ export interface PanoBody {
   seed?: number;
   /** Preferred Buzz pool; omitted = host-chosen (Auto). */
   accountType?: BuzzAccountType;
+  /** Recipe: 'sdxl' (conv-wrap seamless, default) or 'zimage-turbo' (fast, seam inpainted). */
+  engine?: PanoEngine;
+  /** SDXL checkpoint override (picker result); ignored by the zimage engine. */
+  checkpoint?: PanoCheckpoint;
 }
 
 // Juggernaut XL Ragnarok — SDXL checkpoint already proven on Civitai's comfy workers.
 export const CHECKPOINT_MODEL_ID = 133005;
 export const CHECKPOINT_VERSION_ID = 1759168;
 export const CHECKPOINT_AIR = `urn:air:sdxl:checkpoint:civitai:${CHECKPOINT_MODEL_ID}@${CHECKPOINT_VERSION_ID}`;
+export const CHECKPOINT_DEFAULT_NAME = 'Juggernaut XL · Ragnarok';
+
+export function sdxlCheckpointAir(checkpoint: PanoCheckpoint): string {
+  return `urn:air:sdxl:checkpoint:civitai:${checkpoint.modelId}@${checkpoint.versionId}`;
+}
 
 // 360Redmond (SDXL v1.0) — the panorama LoRA. Trigger words: "360, 360view".
 // The SDXL version is deliberate: the seamless-wrap trick patches UNet conv
@@ -77,6 +95,48 @@ export const PROMPT_MAX = 1500;
  * (1 Buzz per GPU-second); a 2048x1024 30-step SDXL run lands around 30-90.
  */
 export const PANORAMA_ESTIMATE_BUZZ = 60;
+
+// ---------------------------------------------------------------------------
+// Z-IMAGE TURBO engine — the fast recipe. Z-Image is a DiT (no UNet convs), so
+// the SeamlessTile circular-padding trick can't apply; instead the graph
+// renders normally and then HEALS the seam: roll the image 50% so the wrap
+// edge lands in the center, inpaint a feathered band across it (partial
+// denoise, same model), and roll back. Few-step turbo sampling (cfg 1) makes
+// the whole thing land around 10-25 Buzz.
+//
+// Model set mirrors the spine workers' own Z-Image graph builders
+// (UNETLoader + CLIPLoader[lumina2] + Flux VAE + ModelSamplingAuraFlow shift 3).
+// ---------------------------------------------------------------------------
+
+export const ZIMAGE_DIFFUSION_AIR =
+  'urn:air:zimageturbo:diffusion_model:huggingface:Comfy-Org/z_image_turbo@main/split_files/diffusion_models/z_image_turbo_bf16.safetensors';
+export const ZIMAGE_CLIP_AIR =
+  'urn:air:qwen:clip:huggingface:Comfy-Org/z_image_turbo@main/split_files/text_encoders/qwen_3_4b_fp8_mixed.safetensors';
+export const ZIMAGE_VAE_AIR =
+  'urn:air:flux1:vae:huggingface:black-forest-labs/FLUX.1-dev@main/ae.safetensors';
+// 360Redmond's Z-Image Turbo version. Trained words: "360 View", "360".
+// Ecosystem `zimageturbo` (the version's canonical AIR per the civitai API) —
+// `zimage:lora` fails resource resolution on the workers.
+export const ZIMAGE_LORA_VERSION_ID = 2702227;
+export const ZIMAGE_LORA_AIR = `urn:air:zimageturbo:lora:civitai:${LORA_MODEL_ID}@${ZIMAGE_LORA_VERSION_ID}`;
+export const ZIMAGE_LORA_STRENGTH = 1.0;
+export const ZIMAGE_TRIGGER_WORDS = '360 view, 360, ';
+
+export const ZIMAGE_STEPS = 8;
+export const ZIMAGE_CFG = 1;
+export const ZIMAGE_SHIFT = 3.0;
+export const ZIMAGE_SAMPLER = 'euler';
+export const ZIMAGE_SCHEDULER = 'simple';
+
+/** Seam-heal tunables: band width/feather in px, inpaint denoise fraction.
+ * E2E-tuned: denoise 0.5 left the seam line partially intact (wrap ratio 4.2)
+ * and a visible tonal step at the band edge — 0.7 + a wider feather heals it. */
+export const SEAM_BAND_PX = 320;
+export const SEAM_FEATHER_PX = 128;
+export const SEAM_DENOISE = 0.7;
+export const SEAM_STEPS = 8;
+
+export const ZIMAGE_ESTIMATE_BUZZ = 20;
 
 export interface ScenePreset {
   id: string;
@@ -132,20 +192,35 @@ export function clampPrompt(raw: string): string {
   return raw.trim().slice(0, PROMPT_MAX);
 }
 
+export interface PanoBodyOptions {
+  engine?: PanoEngine;
+  checkpoint?: PanoCheckpoint;
+}
+
 export function buildPanoBody(
   prompt: string,
   seed?: number,
   accountType?: BuzzAccountType,
+  options: PanoBodyOptions = {},
 ): PanoBody {
   const body: PanoBody = { kind: 'pano360', prompt: clampPrompt(prompt) };
   if (seed !== undefined) body.seed = seed;
   if (accountType) body.accountType = accountType;
+  if (options.engine && options.engine !== 'sdxl') body.engine = options.engine;
+  if (options.checkpoint && (options.engine ?? 'sdxl') === 'sdxl') {
+    body.checkpoint = options.checkpoint;
+  }
   return body;
 }
 
 /** The full positive prompt: LoRA trigger words + scene + quality tail. */
 export function positivePrompt(scene: string): string {
   return TRIGGER_WORDS + clampPrompt(scene) + PROMPT_SUFFIX;
+}
+
+/** Z-Image variant — its LoRA version uses differently-ordered trigger words. */
+export function zimagePositivePrompt(scene: string): string {
+  return ZIMAGE_TRIGGER_WORDS + clampPrompt(scene) + PROMPT_SUFFIX;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,11 +233,12 @@ export function buildHostedBody(
   prompt: string,
   seed?: number,
   accountType?: BuzzAccountType,
+  checkpoint?: PanoCheckpoint,
 ): WorkflowBody {
   const body: WorkflowBody = {
     kind: 'textToImage',
-    modelId: CHECKPOINT_MODEL_ID,
-    modelVersionId: CHECKPOINT_VERSION_ID,
+    modelId: checkpoint?.modelId ?? CHECKPOINT_MODEL_ID,
+    modelVersionId: checkpoint?.versionId ?? CHECKPOINT_VERSION_ID,
     additionalResources: [{ modelVersionId: LORA_VERSION_ID, strength: LORA_STRENGTH }],
     params: {
       prompt: positivePrompt(prompt),
@@ -201,10 +277,11 @@ export type ComfyGraph = Record<
 
 export function buildSeamlessGraph(body: PanoBody): ComfyGraph {
   const seed = body.seed ?? Math.floor(Math.random() * 2_147_483_647);
+  const checkpointAir = body.checkpoint ? sdxlCheckpointAir(body.checkpoint) : CHECKPOINT_AIR;
   return {
     '1': {
       class_type: 'CheckpointLoaderSimple',
-      inputs: { ckpt_name: CHECKPOINT_AIR },
+      inputs: { ckpt_name: checkpointAir },
     },
     '2': {
       class_type: 'LoraLoader',
@@ -306,6 +383,7 @@ export function buildSeamlessTemplate(
   layerAir?: string,
 ): Record<string, unknown> {
   const graph = buildSeamlessGraph(body);
+  const checkpointAir = body.checkpoint ? sdxlCheckpointAir(body.checkpoint) : CHECKPOINT_AIR;
 
   // trace: 'binary' records the worker's ComfyUI /ws session to a streamable
   // blob (steps[].output.traceUrl) — the run UI tails it for real sampler
@@ -322,7 +400,7 @@ export function buildSeamlessTemplate(
   });
 
   if (layerAir) {
-    return { steps: [genStep([layerAir, CHECKPOINT_AIR, LORA_AIR])] };
+    return { steps: [genStep([layerAir, checkpointAir, LORA_AIR])] };
   }
 
   return {
@@ -334,12 +412,214 @@ export function buildSeamlessTemplate(
       },
       genStep([
         { $ref: SNAPSHOT_STEP_NAME, path: 'output.results[0].layerAir' },
-        CHECKPOINT_AIR,
+        checkpointAir,
         LORA_AIR,
       ]),
     ],
   };
 }
+
+// ---------------------------------------------------------------------------
+// Z-IMAGE TURBO translation — render, then heal the seam.
+//
+// txt2img mirrors the spine workers' own Z-Image graph (split loaders, lumina2
+// text encoder, Flux VAE, AuraFlow shift 3, turbo euler/simple cfg 1). The
+// seam heal: ComfyUI has no image "roll" node, so the 50% roll is 2x ImageCrop
+// + ImageStitch with the halves swapped (an involution — applying it again
+// rolls back). The wrap edge then sits at x=1024, where a feathered band mask
+// + SetLatentNoiseMask + partial-denoise KSampler repaints it in context.
+// ---------------------------------------------------------------------------
+
+export function buildZimageSeamlessGraph(body: PanoBody): ComfyGraph {
+  const seed = body.seed ?? Math.floor(Math.random() * 2_147_483_647);
+  const half = PANO_WIDTH / 2;
+
+  const rollNodes = (id: number, image: [string, number]): ComfyGraph => ({
+    [`${id}`]: {
+      class_type: 'ImageCrop',
+      inputs: { image, width: half, height: PANO_HEIGHT, x: 0, y: 0 },
+    },
+    [`${id + 1}`]: {
+      class_type: 'ImageCrop',
+      inputs: { image, width: half, height: PANO_HEIGHT, x: half, y: 0 },
+    },
+    [`${id + 2}`]: {
+      class_type: 'ImageStitch',
+      inputs: {
+        image1: [`${id + 1}`, 0],
+        image2: [`${id}`, 0],
+        direction: 'right',
+        match_image_size: true,
+        spacing_width: 0,
+        spacing_color: 'white',
+      },
+    },
+  });
+
+  return {
+    // txt2img
+    '1': {
+      class_type: 'UNETLoader',
+      inputs: { unet_name: ZIMAGE_DIFFUSION_AIR, weight_dtype: 'default' },
+    },
+    '2': {
+      class_type: 'LoraLoaderModelOnly',
+      inputs: { model: ['1', 0], lora_name: ZIMAGE_LORA_AIR, strength_model: ZIMAGE_LORA_STRENGTH },
+    },
+    '3': {
+      class_type: 'ModelSamplingAuraFlow',
+      inputs: { model: ['2', 0], shift: ZIMAGE_SHIFT },
+    },
+    '4': {
+      class_type: 'CLIPLoader',
+      inputs: { clip_name: ZIMAGE_CLIP_AIR, type: 'lumina2', device: 'default' },
+    },
+    '5': {
+      class_type: 'CLIPTextEncode',
+      inputs: { clip: ['4', 0], text: zimagePositivePrompt(body.prompt) },
+    },
+    // Wired but inert at cfg 1 (turbo runs without guidance).
+    '6': {
+      class_type: 'CLIPTextEncode',
+      inputs: { clip: ['4', 0], text: '' },
+    },
+    '7': {
+      class_type: 'VAELoader',
+      inputs: { vae_name: ZIMAGE_VAE_AIR },
+    },
+    '8': {
+      class_type: 'EmptySD3LatentImage',
+      inputs: { width: PANO_WIDTH, height: PANO_HEIGHT, batch_size: 1 },
+    },
+    '9': {
+      class_type: 'KSampler',
+      inputs: {
+        model: ['3', 0],
+        positive: ['5', 0],
+        negative: ['6', 0],
+        latent_image: ['8', 0],
+        seed,
+        steps: ZIMAGE_STEPS,
+        cfg: ZIMAGE_CFG,
+        sampler_name: ZIMAGE_SAMPLER,
+        scheduler: ZIMAGE_SCHEDULER,
+        denoise: 1.0,
+      },
+    },
+    '10': {
+      class_type: 'VAEDecode',
+      inputs: { samples: ['9', 0], vae: ['7', 0] },
+    },
+    // roll 50% — wrap edge to center (11: left, 12: right, 13: [R|L])
+    ...rollNodes(11, ['10', 0]),
+    // feathered band mask over the centered seam
+    '14': {
+      class_type: 'SolidMask',
+      inputs: { value: 0, width: PANO_WIDTH, height: PANO_HEIGHT },
+    },
+    '15': {
+      class_type: 'SolidMask',
+      inputs: { value: 1, width: SEAM_BAND_PX, height: PANO_HEIGHT },
+    },
+    '16': {
+      class_type: 'MaskComposite',
+      inputs: {
+        destination: ['14', 0],
+        source: ['15', 0],
+        x: (PANO_WIDTH - SEAM_BAND_PX) / 2,
+        y: 0,
+        operation: 'add',
+      },
+    },
+    '17': {
+      class_type: 'FeatherMask',
+      inputs: { mask: ['16', 0], left: SEAM_FEATHER_PX, top: 0, right: SEAM_FEATHER_PX, bottom: 0 },
+    },
+    // inpaint the band in context (partial denoise, same model)
+    '18': {
+      class_type: 'VAEEncode',
+      inputs: { pixels: ['13', 0], vae: ['7', 0] },
+    },
+    '19': {
+      class_type: 'SetLatentNoiseMask',
+      inputs: { samples: ['18', 0], mask: ['17', 0] },
+    },
+    '20': {
+      class_type: 'KSampler',
+      inputs: {
+        model: ['3', 0],
+        positive: ['5', 0],
+        negative: ['6', 0],
+        latent_image: ['19', 0],
+        seed: seed + 1,
+        steps: SEAM_STEPS,
+        cfg: ZIMAGE_CFG,
+        sampler_name: ZIMAGE_SAMPLER,
+        scheduler: ZIMAGE_SCHEDULER,
+        denoise: SEAM_DENOISE,
+      },
+    },
+    '21': {
+      class_type: 'VAEDecode',
+      inputs: { samples: ['20', 0], vae: ['7', 0] },
+    },
+    // roll back (22: left, 23: right, 24: [R|L] — the involution restores order)
+    ...rollNodes(22, ['21', 0]),
+    '25': {
+      class_type: 'SaveImage',
+      inputs: { images: ['24', 0], filename_prefix: 'panorama' },
+    },
+  };
+}
+
+/**
+ * The Z-Image Turbo orchestrator template: ONE customComfy step — the recipe
+ * uses only stock ComfyUI nodes, so there is no nodepack snapshot step and no
+ * install-layer cache to manage.
+ */
+export function buildZimageSeamlessTemplate(body: PanoBody): Record<string, unknown> {
+  return {
+    steps: [
+      {
+        $type: 'customComfy',
+        name: GEN_STEP_NAME,
+        timeout: '01:00:00',
+        input: {
+          resources: [ZIMAGE_DIFFUSION_AIR, ZIMAGE_CLIP_AIR, ZIMAGE_VAE_AIR, ZIMAGE_LORA_AIR],
+          trace: 'binary',
+          workflow: buildZimageSeamlessGraph(body),
+        },
+      },
+    ],
+  };
+}
+
+export const ZIMAGE_NODE_LABELS: Record<string, string> = {
+  '1': 'Loading Z-Image Turbo',
+  '2': 'Applying 360 LoRA',
+  '3': 'Tuning the sampler',
+  '4': 'Loading text encoder',
+  '5': 'Encoding prompt',
+  '7': 'Loading VAE',
+  '8': 'Preparing canvas',
+  '9': 'Sampling',
+  '10': 'Decoding image',
+  '11': 'Centering the seam',
+  '12': 'Centering the seam',
+  '13': 'Centering the seam',
+  '14': 'Masking the seam',
+  '15': 'Masking the seam',
+  '16': 'Masking the seam',
+  '17': 'Masking the seam',
+  '18': 'Encoding for seam heal',
+  '19': 'Masking the seam',
+  '20': 'Healing the seam',
+  '21': 'Decoding healed image',
+  '22': 'Restoring the wrap',
+  '23': 'Restoring the wrap',
+  '24': 'Restoring the wrap',
+  '25': 'Saving panorama',
+};
 
 // ---------------------------------------------------------------------------
 // Orchestrator workflow document -> BlockWorkflowSnapshot mapping (what the

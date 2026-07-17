@@ -37,15 +37,36 @@ The registry build of the seamless pack deep-copies the model/VAE on its
 in-place option) is avoided in favor of `MakeCircularVAE` + stock `VAEDecode`.
 Safe in a one-shot job container.
 
-## Two generation modes
+## Three generation modes
 
-| Mode | Submit body | Runs where | Seam |
-|------|-------------|-----------|------|
-| **Seamless wrap** | proposed `kind: 'pano360'` → customComfy template | dev `dev:orch` harness today; embedding on civitai.com needs the block bridge to grow a `pano360` kind (same "shipping for real" gap as illusion-factory) | none (wrapped) |
-| **Standard** | `kind: 'textToImage'` (checkpoint + LoRA, 2048×1024 — within the bridge caps) | works through the real block bridge today | visible where the edges meet |
+| Mode | Submit body | Recipe | Seam | ~Cost |
+|------|-------------|--------|------|-------|
+| **Seamless (SDXL)** | proposed `kind: 'pano360'` (`engine: 'sdxl'`) → customComfy template | SDXL + 360 LoRA + circular conv wrap | none (wrapped) | 30–90 Buzz |
+| **Fast (Z-Image)** | `kind: 'pano360'` (`engine: 'zimage-turbo'`) → customComfy template | Z-Image Turbo (8 steps, cfg 1) + 360 LoRA, then a **seam-heal pass**: roll the image 50% (crop+stitch — the wrap edge lands center), inpaint a feathered band across it (`SetLatentNoiseMask`, denoise 0.7), roll back. All stock nodes — no nodepack, single step | healed (measured wrap ratio ~1.3 vs the SDXL wrap's ~1.2; a raw generation is 5–20×) | 15–25 Buzz |
+| **Standard** | `kind: 'textToImage'` (works through the real block bridge today) | SDXL + 360 LoRA, plain generation | visible | 30–90 Buzz |
 
-Both modes share one UI, poll loop, and viewer; the app auto-disables the
-seamless toggle when the host can't run it.
+The customComfy modes (`pano360`) run in the dev `dev:orch` harness today;
+embedding them on civitai.com needs the block bridge to grow the `pano360`
+kind. All modes share one UI, run card, poll loop, and viewer; the app
+auto-disables the customComfy modes when the host can't run them.
+
+Z-Image is a DiT (no UNet convs), so the SeamlessTile circular-padding trick
+can't apply — that's what the roll-and-inpaint pass is for. Its graph mirrors
+the spine workers' own Z-Image builders (UNETLoader + CLIPLoader `lumina2` +
+Flux VAE + `ModelSamplingAuraFlow` shift 3). Gotcha: the 360 LoRA's Z-Image
+version must be addressed as `urn:air:zimageturbo:lora:…` (the version's
+canonical AIR) — `zimage:lora` fails resource resolution on the workers.
+
+## Picking the SDXL checkpoint
+
+The Model row (SDXL modes) opens the host's **checkpoint picker**
+(`OPEN_CHECKPOINT_PICKER`, filtered to the SDXL family): civitai.com opens its
+native model-select modal, the mock host answers with a canned pick, and
+`dev:orch` opens the SDK's searchable catalog overlay through the vite `/api`
+proxy. A pick is discovery-only — the server re-validates the id at submit —
+and the picked checkpoint rides `body.checkpoint` into the customComfy graph
+(or `modelId`/`modelVersionId` in hosted mode). A checkpoint that isn't warm
+on the worker downloads during "Preparing" (unbilled; the run card shows %).
 
 ## The run experience — `@civitai/comfy-run-kit`
 
@@ -98,7 +119,7 @@ dev-stack's `.mcp.json` — generations bill **that token owner's account**.
 | File | What |
 |------|------|
 | `packages/comfy-run-kit/` | The reusable run-experience kit (headless run controller, trace tailer, buzz meter, gateways, `<civitai-*>` elements) |
-| `src/panorama.ts` | Domain: AIRs, presets, hosted body, seamless customComfy template (2-step snapshot/$ref or single-step cached-layer, `trace: "binary"`), node labels |
+| `src/panorama.ts` | Domain: AIRs, presets, hosted body, SDXL seamless template (2-step snapshot/$ref or single-step cached-layer), Z-Image Turbo template (txt2img + roll/inpaint seam heal, single stock-node step), checkpoint override, node labels |
 | `src/nodepack.ts` | Install-layer AIR cache (localStorage + in-memory fallback for the sandboxed iframe) |
 | `src/controller.ts` | App wrapper: estimate + Buzz-error classification + gallery accumulation, delegating submit → terminal to the kit's `RunController` |
 | `src/transport.ts` | Framework-free typed bridge over the SDK transport (estimate, consent, balance, resize) + the kit `BridgeGateway` |

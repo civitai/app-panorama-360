@@ -6,7 +6,11 @@
 
 import { getTransport, sendTypedRequest } from '@civitai/blocks-react';
 import type { BlockSnapshot, BlockTransport } from '@civitai/blocks-react';
-import type { BlockWorkflowSnapshot, WorkflowBody } from '@civitai/app-sdk/blocks';
+import type {
+  BlockCheckpointInfo,
+  BlockWorkflowSnapshot,
+  WorkflowBody,
+} from '@civitai/app-sdk/blocks';
 import { BridgeGateway } from '@civitai/comfy-run-kit/bridge';
 
 import { BUDGETED_SCOPE } from './generation.js';
@@ -29,6 +33,15 @@ export interface BlockSession extends WorkflowBridge {
   requestConsent(): void;
   /** Read the viewer's Buzz wallet; null when the host can't answer. */
   getBuzzBalance(): Promise<BuzzBalance | null>;
+  /**
+   * Open the host's checkpoint picker filtered to a base-model family.
+   * Resolves the pick (discovery-only — the server re-validates at submit)
+   * or null when the user dismissed / the host can't show a picker.
+   */
+  openCheckpointPicker(options: {
+    baseModelGroup: string;
+    currentVersionId?: number;
+  }): Promise<BlockCheckpointInfo | null>;
   /** Report the block's rendered height so the host can size the iframe. */
   resize(height: number): void;
 }
@@ -75,6 +88,19 @@ export function createBlockSession(transport: BlockTransport = getTransport()): 
           'BUZZ_BALANCE_RESULT',
         );
         return payload.balance ?? null;
+      } catch {
+        return null;
+      }
+    },
+
+    async openCheckpointPicker(options): Promise<BlockCheckpointInfo | null> {
+      try {
+        const payload = await sendTypedRequest(
+          transport,
+          { type: 'OPEN_CHECKPOINT_PICKER', payload: { ...options } },
+          'CHECKPOINT_PICKER_RESULT',
+        );
+        return payload.selected ?? null;
       } catch {
         return null;
       }

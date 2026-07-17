@@ -6,9 +6,15 @@
 
 import { RUN_CANCEL_EVENT } from '@civitai/comfy-run-kit/elements';
 
-import { GenerationController, type ControllerState, type PanoRequest } from '../controller.js';
+import {
+  GenerationController,
+  MODE_ESTIMATE_BUZZ,
+  type ControllerState,
+  type PanoRequest,
+} from '../controller.js';
 import { createBlockSession, type BlockSession, type BuzzBalance } from '../transport.js';
 import { formatCost } from '../generation.js';
+import type { PanoCheckpoint, PanoMode } from '../panorama.js';
 import type { PanoControls } from './pano-controls.js';
 import type { PanoGallery } from './pano-gallery.js';
 import type { PanoStatus } from './pano-status.js';
@@ -45,6 +51,7 @@ export class PanoApp extends HTMLElement {
   #shownUrl: string | null = null;
   #wasReady = false;
   #lastPhase: ControllerState['phase'] | null = null;
+  #checkpoint: (PanoCheckpoint & { name: string }) | null = null;
 
   connectedCallback(): void {
     if (this.#cardEl) return;
@@ -64,6 +71,14 @@ export class PanoApp extends HTMLElement {
       this.#onGenerate(e.detail)) as EventListener);
     this.addEventListener(RUN_CANCEL_EVENT, () => this.#controller?.cancel());
     this.addEventListener('pano-signin', () => session.requestSignIn());
+    this.addEventListener('pano-pick-checkpoint', () => void this.#pickCheckpoint());
+    this.addEventListener('pano-reset-checkpoint', () => {
+      this.#checkpoint = null;
+      this.#controls.checkpoint = null;
+    });
+    this.addEventListener('pano-mode-change', ((e: CustomEvent<{ mode: PanoMode }>) => {
+      this.#controls.estimatedCost = MODE_ESTIMATE_BUZZ[e.detail.mode];
+    }) as EventListener);
     this.addEventListener('pano-select', ((e: CustomEvent<{ url: string }>) => {
       this.#shownUrl = e.detail.url;
       this.#viewer.src = e.detail.url;
@@ -175,6 +190,20 @@ export class PanoApp extends HTMLElement {
     this.#lastPhase = state.phase;
   }
 
+  async #pickCheckpoint(): Promise<void> {
+    const selected = await this.session!.openCheckpointPicker({
+      baseModelGroup: 'SDXL',
+      ...(this.#checkpoint !== null && { currentVersionId: this.#checkpoint.versionId }),
+    });
+    if (!selected) return;
+    this.#checkpoint = {
+      modelId: selected.modelId,
+      versionId: selected.versionId,
+      name: `${selected.modelName} · ${selected.versionName}`,
+    };
+    this.#controls.checkpoint = { name: this.#checkpoint.name };
+  }
+
   #onGenerate(request: PanoRequest): void {
     const session = this.session!;
     const snapshot = session.getSnapshot();
@@ -183,6 +212,9 @@ export class PanoApp extends HTMLElement {
       return;
     }
     request.mode = this.#controls.mode;
+    if (this.#checkpoint && request.mode !== 'zimage') {
+      request.checkpoint = { modelId: this.#checkpoint.modelId, versionId: this.#checkpoint.versionId };
+    }
     if (!session.canGenerate()) {
       this.#consentPending = true;
       this.#pendingRequest = request;

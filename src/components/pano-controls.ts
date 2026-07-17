@@ -1,11 +1,24 @@
 // <pano-controls> — the generation form: scene presets, prompt, seed, mode
-// toggle, and the Generate button. Emits `pano-generate` with a PanoRequest
-// detail; <pano-app> owns submission. DOM is built once; property setters
-// mutate in place so re-renders never clobber what the user is typing.
+// toggle, the SDXL model row, and the Generate button. Emits `pano-generate`
+// with a PanoRequest detail (checkpoint threaded by <pano-app>), plus
+// `pano-mode-change` and `pano-pick-checkpoint` intents. DOM is built once;
+// property setters mutate in place so re-renders never clobber typing.
 
 import type { PanoRequest } from '../controller.js';
-import { SCENE_PRESETS, type PanoMode } from '../panorama.js';
+import { CHECKPOINT_DEFAULT_NAME, SCENE_PRESETS, type PanoMode } from '../panorama.js';
 import { formatCost } from '../generation.js';
+
+/** The picked-checkpoint display state <pano-app> projects in. */
+export interface ControlsCheckpoint {
+  name: string;
+}
+
+const MODE_NOTES: Record<PanoMode, string> = {
+  seamless: 'Left and right edges wrap perfectly — no visible seam behind you.',
+  zimage:
+    'Z-Image Turbo — fast and cheap; the wrap seam is healed with an inpaint pass.',
+  hosted: 'Standard generation: expect a visible seam where the edges meet.',
+};
 
 export class PanoControls extends HTMLElement {
   #busy = false;
@@ -13,6 +26,7 @@ export class PanoControls extends HTMLElement {
   #seamlessAvailable = false;
   #estimatedCost: number | null = null;
   #anon = false;
+  #checkpoint: ControlsCheckpoint | null = null;
 
   #promptEl!: HTMLTextAreaElement;
   #seedEl!: HTMLInputElement;
@@ -20,6 +34,10 @@ export class PanoControls extends HTMLElement {
   #presetBtns: HTMLButtonElement[] = [];
   #modeBtns = new Map<PanoMode, HTMLButtonElement>();
   #modeNote!: HTMLElement;
+  #modelField!: HTMLElement;
+  #modelNameEl!: HTMLElement;
+  #modelChangeBtn!: HTMLButtonElement;
+  #modelResetBtn!: HTMLButtonElement;
 
   connectedCallback(): void {
     if (this.#generateBtn) return;
@@ -42,16 +60,22 @@ export class PanoControls extends HTMLElement {
     this.#sync();
   }
 
-  /** Whether seamless (customComfy) mode can run against the current host. */
+  /** Whether customComfy modes (seamless/zimage) can run against this host. */
   set seamlessAvailable(value: boolean) {
     this.#seamlessAvailable = value;
     if (value && this.#mode === 'hosted') this.#mode = 'seamless';
-    if (!value) this.#mode = 'hosted';
+    if (!value && this.#mode !== 'hosted') this.#mode = 'hosted';
     this.#sync();
   }
 
   get mode(): PanoMode {
     return this.#mode;
+  }
+
+  /** The picked checkpoint (null = default). Set by <pano-app>. */
+  set checkpoint(value: ControlsCheckpoint | null) {
+    this.#checkpoint = value;
+    this.#sync();
   }
 
   #build(): void {
@@ -100,12 +124,13 @@ export class PanoControls extends HTMLElement {
     seedField.appendChild(this.#seedEl);
 
     const modeField = el('div', 'pn-field');
-    modeField.appendChild(el('span', 'pn-label', 'Seam'));
+    modeField.appendChild(el('span', 'pn-label', 'Mode'));
     const modeRow = el('div', 'pn-row');
     modeRow.setAttribute('role', 'radiogroup');
     modeRow.setAttribute('aria-label', 'Panorama mode');
     const modes: Array<{ mode: PanoMode; label: string }> = [
-      { mode: 'seamless', label: 'Seamless wrap' },
+      { mode: 'seamless', label: 'Seamless (SDXL)' },
+      { mode: 'zimage', label: 'Fast (Z-Image)' },
       { mode: 'hosted', label: 'Standard' },
     ];
     for (const { mode, label } of modes) {
@@ -114,9 +139,13 @@ export class PanoControls extends HTMLElement {
       btn.setAttribute('role', 'radio');
       btn.dataset.testid = `pn-mode-${mode}`;
       btn.addEventListener('click', () => {
-        if (mode === 'seamless' && !this.#seamlessAvailable) return;
+        if (mode !== 'hosted' && !this.#seamlessAvailable) return;
+        if (this.#mode === mode) return;
         this.#mode = mode;
         this.#sync();
+        this.dispatchEvent(
+          new CustomEvent('pano-mode-change', { bubbles: true, detail: { mode } }),
+        );
       });
       this.#modeBtns.set(mode, btn);
       modeRow.appendChild(btn);
@@ -124,14 +153,34 @@ export class PanoControls extends HTMLElement {
     this.#modeNote = el('span', 'pn-desc');
     modeField.append(modeRow, this.#modeNote);
 
-    optionsRow.append(modeField, seedField);
+    // SDXL model row — hidden in zimage mode (Z-Image has one base model).
+    this.#modelField = el('div', 'pn-field');
+    this.#modelField.appendChild(el('span', 'pn-label', 'Model'));
+    const modelRow = el('div', 'pn-row');
+    this.#modelNameEl = el('span', 'pn-desc');
+    this.#modelNameEl.dataset.testid = 'pn-model-name';
+    this.#modelChangeBtn = el('button', 'pn-btn pn-btn--subtle', 'Change…') as HTMLButtonElement;
+    this.#modelChangeBtn.type = 'button';
+    this.#modelChangeBtn.dataset.testid = 'pn-model-change';
+    this.#modelChangeBtn.addEventListener('click', () =>
+      this.dispatchEvent(new CustomEvent('pano-pick-checkpoint', { bubbles: true })),
+    );
+    this.#modelResetBtn = el('button', 'pn-btn pn-btn--subtle', 'Reset') as HTMLButtonElement;
+    this.#modelResetBtn.type = 'button';
+    this.#modelResetBtn.dataset.testid = 'pn-model-reset';
+    this.#modelResetBtn.addEventListener('click', () =>
+      this.dispatchEvent(new CustomEvent('pano-reset-checkpoint', { bubbles: true })),
+    );
+    modelRow.append(this.#modelNameEl, this.#modelChangeBtn, this.#modelResetBtn);
+    this.#modelField.appendChild(modelRow);
 
     this.#generateBtn = el('button', 'pn-btn') as HTMLButtonElement;
     this.#generateBtn.type = 'button';
     this.#generateBtn.dataset.testid = 'pn-generate';
     this.#generateBtn.addEventListener('click', () => this.#emitGenerate());
 
-    this.append(sceneField, optionsRow, this.#generateBtn);
+    optionsRow.append(modeField, seedField);
+    this.append(sceneField, optionsRow, this.#modelField, this.#generateBtn);
   }
 
   #markPreset(active: HTMLButtonElement | null): void {
@@ -164,13 +213,18 @@ export class PanoControls extends HTMLElement {
     if (!this.#generateBtn) return;
     for (const [mode, btn] of this.#modeBtns) {
       btn.setAttribute('aria-checked', mode === this.#mode ? 'true' : 'false');
-      btn.disabled = this.#busy || (mode === 'seamless' && !this.#seamlessAvailable);
+      btn.disabled = this.#busy || (mode !== 'hosted' && !this.#seamlessAvailable);
     }
     this.#modeNote.textContent = this.#seamlessAvailable
-      ? this.#mode === 'seamless'
-        ? 'Left and right edges wrap perfectly — no visible seam behind you.'
-        : 'Standard generation: expect a visible seam where the edges meet.'
-      : 'Seamless wrap needs the customComfy bridge (dev:orch) — this host runs standard generations, which show a seam where the edges meet.';
+      ? MODE_NOTES[this.#mode]
+      : 'Seamless modes need the customComfy bridge (dev:orch) — this host runs standard generations, which show a seam where the edges meet.';
+
+    this.#modelField.hidden = this.#mode === 'zimage';
+    this.#modelNameEl.textContent = this.#checkpoint?.name ?? CHECKPOINT_DEFAULT_NAME;
+    this.#modelChangeBtn.disabled = this.#busy;
+    this.#modelResetBtn.disabled = this.#busy;
+    this.#modelResetBtn.hidden = this.#checkpoint === null;
+
     this.#promptEl.disabled = this.#busy;
     this.#seedEl.disabled = this.#busy;
     for (const btn of this.#presetBtns) btn.disabled = this.#busy;

@@ -46,6 +46,18 @@ export async function mountHarness(root: HTMLElement): Promise<void> {
   const options = readMockHostUrlOptions();
   const host = createMockHost({
     buzzBalance: { blue: 1500, green: 250, yellow: 6000 },
+    // The SDK's default canned pick is a Flux model — this app filters the
+    // picker to SDXL, so can a family-correct checkpoint for the mock flow.
+    cannedPicks: {
+      Checkpoint: {
+        versionId: 126688,
+        modelId: 112902,
+        modelName: 'DreamShaper XL',
+        versionName: 'alpha2 (xl1.0)',
+        baseModel: 'SDXL 1.0',
+        modelType: 'Checkpoint',
+      },
+    },
     ...options,
   });
   host.install();

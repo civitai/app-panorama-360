@@ -11,10 +11,20 @@ import { phaseForError, type GenPhase } from './generation.js';
 import {
   PANORAMA_ESTIMATE_BUZZ,
   PANO_NODE_LABELS,
+  ZIMAGE_ESTIMATE_BUZZ,
+  ZIMAGE_NODE_LABELS,
   buildHostedBody,
   buildPanoBody,
+  type PanoCheckpoint,
   type PanoMode,
 } from './panorama.js';
+
+/** The pre-estimate cost shown per mode (refined by the bridge estimate). */
+export const MODE_ESTIMATE_BUZZ: Record<PanoMode, number> = {
+  seamless: PANORAMA_ESTIMATE_BUZZ,
+  zimage: ZIMAGE_ESTIMATE_BUZZ,
+  hosted: PANORAMA_ESTIMATE_BUZZ,
+};
 
 /** What the controller needs from the host bridge. */
 export interface WorkflowBridge {
@@ -28,6 +38,8 @@ export interface PanoRequest {
   seed?: number;
   mode: PanoMode;
   accountType?: BuzzAccountType;
+  /** SDXL checkpoint override (picker result); ignored in zimage mode. */
+  checkpoint?: PanoCheckpoint;
 }
 
 export interface ControllerState {
@@ -97,7 +109,7 @@ export class GenerationController {
     this.set({
       ...INITIAL,
       mode: req.mode,
-      estimatedCost: this.state.estimatedCost,
+      estimatedCost: MODE_ESTIMATE_BUZZ[req.mode],
       phase: 'estimating',
       startedAt: Date.now(),
     });
@@ -106,8 +118,11 @@ export class GenerationController {
     // the bridge's published WorkflowBody union is textToImage-only today.
     const body =
       req.mode === 'hosted'
-        ? buildHostedBody(req.prompt, req.seed, req.accountType)
-        : (buildPanoBody(req.prompt, req.seed, req.accountType) as unknown as WorkflowBody);
+        ? buildHostedBody(req.prompt, req.seed, req.accountType, req.checkpoint)
+        : (buildPanoBody(req.prompt, req.seed, req.accountType, {
+            engine: req.mode === 'zimage' ? 'zimage-turbo' : 'sdxl',
+            ...(req.checkpoint !== undefined && { checkpoint: req.checkpoint }),
+          }) as unknown as WorkflowBody);
 
     try {
       const est = await this.bridge.estimate(body);
@@ -129,6 +144,7 @@ export class GenerationController {
     const run = new RunController({
       gateway: this.bridge.gateway,
       ...(req.mode === 'seamless' && { nodeLabels: PANO_NODE_LABELS }),
+      ...(req.mode === 'zimage' && { nodeLabels: ZIMAGE_NODE_LABELS }),
     });
     this.run = run;
     this.runUnsubscribe = run.subscribe((runState) => this.onRunState(runState));

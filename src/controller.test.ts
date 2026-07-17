@@ -96,6 +96,25 @@ describe('GenerationController', () => {
     expect((bridge.submitted[1] as { kind: string }).kind).toBe('textToImage');
   });
 
+  it('zimage mode submits the zimage-turbo engine; checkpoint threads through others', async () => {
+    const bridge = makeBridge();
+    const controller = new GenerationController(bridge);
+    const checkpoint = { modelId: 112902, versionId: 126688 };
+
+    await controller.generate({ prompt: 'a lake', mode: 'zimage', checkpoint });
+    await controller.generate({ prompt: 'a lake', mode: 'seamless', checkpoint });
+    await controller.generate({ prompt: 'a lake', mode: 'hosted', checkpoint });
+
+    expect(bridge.submitted[0]).toMatchObject({ kind: 'pano360', engine: 'zimage-turbo' });
+    expect(bridge.submitted[0]).not.toHaveProperty('checkpoint');
+    expect(bridge.submitted[1]).toMatchObject({ kind: 'pano360', checkpoint });
+    expect(bridge.submitted[2]).toMatchObject({
+      kind: 'textToImage',
+      modelId: 112902,
+      modelVersionId: 126688,
+    });
+  });
+
   it('exposes the kit run state (progress detail) and streams urls on the schedule', async () => {
     let calls = 0;
     const bridge = makeBridge({

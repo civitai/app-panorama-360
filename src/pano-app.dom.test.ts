@@ -45,6 +45,13 @@ interface FakeSessionOptions {
   balance?: BuzzBalance | null;
   submitResult?: GatewayResult;
   pollResult?: GatewayResult;
+  checkpointPick?: {
+    versionId: number;
+    modelId: number;
+    modelName: string;
+    versionName: string;
+    baseModel: string;
+  } | null;
 }
 
 function makeSession(options: FakeSessionOptions = {}) {
@@ -97,6 +104,7 @@ function makeSession(options: FakeSessionOptions = {}) {
     requestSignIn: vi.fn(),
     requestConsent: vi.fn(),
     getBuzzBalance: vi.fn(async () => options.balance ?? { blue: 100, green: 0, yellow: 900 }),
+    openCheckpointPicker: vi.fn(async () => options.checkpointPick ?? null),
     resize: vi.fn(),
   } satisfies BlockSession & Record<string, unknown>;
 
@@ -212,6 +220,58 @@ describe('<pano-app>', () => {
     const app = mountApp(session);
     await flush();
     expect(app.querySelector('.pn-balance')?.textContent).toContain('Total 60 Buzz');
+  });
+
+  it('checkpoint pick flow: picker result labels the row and rides the submit', async () => {
+    const { session, submitted } = makeSession({
+      checkpointPick: {
+        versionId: 126688,
+        modelId: 112902,
+        modelName: 'DreamShaper XL',
+        versionName: 'alpha2 (xl1.0)',
+        baseModel: 'SDXL 1.0',
+      },
+    });
+    const app = mountApp(session);
+    await flush();
+
+    (app.querySelector('[data-testid=pn-model-change]') as HTMLButtonElement).click();
+    await flush();
+    expect(session.openCheckpointPicker).toHaveBeenCalledWith({ baseModelGroup: 'SDXL' });
+    expect(app.querySelector('[data-testid=pn-model-name]')?.textContent).toContain(
+      'DreamShaper XL',
+    );
+    const reset = app.querySelector('[data-testid=pn-model-reset]') as HTMLButtonElement;
+    expect(reset.hidden).toBe(false);
+
+    (app.querySelector('[data-testid=pn-preset-alpine]') as HTMLButtonElement).click();
+    (app.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
+    await flush();
+    expect(submitted[0]).toMatchObject({
+      kind: 'pano360',
+      checkpoint: { modelId: 112902, versionId: 126688 },
+    });
+
+    reset.click();
+    expect(app.querySelector('[data-testid=pn-model-name]')?.textContent).toContain('Juggernaut');
+  });
+
+  it('zimage mode hides the model row and submits the zimage-turbo engine', async () => {
+    const { session, submitted } = makeSession();
+    const app = mountApp(session);
+    await flush();
+
+    (app.querySelector('[data-testid=pn-mode-zimage]') as HTMLButtonElement).click();
+    expect(
+      (app.querySelector('[data-testid=pn-model-name]')?.parentElement?.parentElement as HTMLElement)
+        .hidden,
+    ).toBe(true);
+
+    (app.querySelector('[data-testid=pn-preset-alpine]') as HTMLButtonElement).click();
+    (app.querySelector('[data-testid=pn-generate]') as HTMLButtonElement).click();
+    await flush();
+    expect(submitted[0]).toMatchObject({ kind: 'pano360', engine: 'zimage-turbo' });
+    expect(submitted[0]).not.toHaveProperty('checkpoint');
   });
 
   it('the run card cancel button interrupts the run server-side', async () => {

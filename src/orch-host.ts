@@ -48,7 +48,9 @@ import { mapDocToDetail, type RunDetail } from '@civitai/comfy-run-kit';
 import {
   GEN_STEP_NAME,
   PANORAMA_ESTIMATE_BUZZ,
+  ZIMAGE_ESTIMATE_BUZZ,
   buildSeamlessTemplate,
+  buildZimageSeamlessTemplate,
   extractLayerAir,
   mapWorkflowToSnapshot,
   type OrchestratorWorkflowDoc,
@@ -62,7 +64,11 @@ const INTERCEPTED = new Set([
   'POLL_WORKFLOW',
   'CANCEL_WORKFLOW',
   'GET_BUZZ_BALANCE',
+  'OPEN_CHECKPOINT_PICKER',
 ]);
+
+/** The overlay's catalog filter wants a baseModel NAME, not an ecosystem key. */
+const BASE_MODEL_GROUP_TO_NAME: Record<string, string> = { SDXL: 'SDXL 1.0' };
 
 const ORCH_BASE = '/orch/v2/consumer/workflows';
 
@@ -141,25 +147,35 @@ function captureLayerAir(doc: OrchestratorWorkflowDoc): void {
   if (layerAir) setCachedLayerAir(layerAir);
 }
 
+async function submitSdxl(body: PanoBody): Promise<OrchestratorWorkflowDoc> {
+  const cachedLayer = getCachedLayerAir();
+  try {
+    return await orchFetch(ORCH_BASE, {
+      method: 'POST',
+      body: JSON.stringify(buildSeamlessTemplate(body, cachedLayer)),
+    });
+  } catch (err) {
+    // A stale cached layer AIR fails at submit/enqueue — drop it and let the
+    // snapshot step re-capture (a server-side cache hit when still valid).
+    if (!cachedLayer) throw err;
+    clearCachedLayerAir();
+    return await orchFetch(ORCH_BASE, {
+      method: 'POST',
+      body: JSON.stringify(buildSeamlessTemplate(body)),
+    });
+  }
+}
+
 async function handleSubmit(requestId: string, body: PanoBody): Promise<void> {
   try {
-    const cachedLayer = getCachedLayerAir();
-    let doc: OrchestratorWorkflowDoc;
-    try {
-      doc = await orchFetch(ORCH_BASE, {
-        method: 'POST',
-        body: JSON.stringify(buildSeamlessTemplate(body, cachedLayer)),
-      });
-    } catch (err) {
-      // A stale cached layer AIR fails at submit/enqueue — drop it and let the
-      // snapshot step re-capture (a server-side cache hit when still valid).
-      if (!cachedLayer) throw err;
-      clearCachedLayerAir();
-      doc = await orchFetch(ORCH_BASE, {
-        method: 'POST',
-        body: JSON.stringify(buildSeamlessTemplate(body)),
-      });
-    }
+    // zimage-turbo is all stock nodes: single step, no nodepack layer to manage.
+    const doc =
+      body.engine === 'zimage-turbo'
+        ? await orchFetch(ORCH_BASE, {
+            method: 'POST',
+            body: JSON.stringify(buildZimageSeamlessTemplate(body)),
+          })
+        : await submitSdxl(body);
     if (doc.id) orchWorkflowIds.add(doc.id);
     captureLayerAir(doc);
     dispatchToBlock({
@@ -234,9 +250,9 @@ async function handleCancel(requestId: string, workflowId: string): Promise<void
   }
 }
 
-function handleEstimate(requestId: string): void {
+function handleEstimate(requestId: string, body: PanoBody): void {
   // customComfy bills post-paid (1 Buzz per GPU-second) — there is no exact
-  // pre-price. Report the tuned approximation the button shows.
+  // pre-price. Report the tuned per-engine approximation the button shows.
   dispatchToBlock({
     type: 'ESTIMATE_RESULT',
     payload: {
@@ -244,10 +260,43 @@ function handleEstimate(requestId: string): void {
       snapshot: {
         workflowId: 'wf_estimate',
         status: 'pending',
-        cost: { total: PANORAMA_ESTIMATE_BUZZ },
+        cost: {
+          total: body.engine === 'zimage-turbo' ? ZIMAGE_ESTIMATE_BUZZ : PANORAMA_ESTIMATE_BUZZ,
+        },
       },
     },
   });
+}
+
+async function handleCheckpointPicker(
+  requestId: string,
+  payload: { baseModelGroup?: string; currentVersionId?: number },
+): Promise<void> {
+  const reply = (selected?: unknown) =>
+    dispatchToBlock({
+      type: 'CHECKPOINT_PICKER_RESULT',
+      payload: { requestId, ...(selected !== undefined && selected !== null ? { selected } : {}) },
+    });
+  try {
+    // The SDK live host's own searchable overlay, pointed at the public
+    // catalog through the vite `/api` proxy (same-origin, no token). A pick is
+    // discovery-only; a real bridge re-validates the id at submit.
+    const { openPickerOverlay } = await import('@civitai/blocks-react/testing');
+    const group = payload.baseModelGroup;
+    openPickerOverlay({
+      type: 'Checkpoint',
+      baseUrl: '',
+      token: null,
+      fetchImpl: (...args) => fetch(...args),
+      ...(group !== undefined && { baseModelGroup: BASE_MODEL_GROUP_TO_NAME[group] ?? group }),
+      ...(payload.currentVersionId !== undefined && {
+        currentVersionId: payload.currentVersionId,
+      }),
+      onResolve: (selection) => reply(selection?.selected),
+    });
+  } catch {
+    reply();
+  }
 }
 
 function handleBalance(requestId: string): void {
@@ -281,7 +330,14 @@ function handleIntercepted(data: BridgeMessage): boolean {
   if (typeof requestId !== 'string') return false;
 
   if (data.type === 'ESTIMATE_WORKFLOW' && isPanoBody(data.payload?.body)) {
-    handleEstimate(requestId);
+    handleEstimate(requestId, data.payload?.body as PanoBody);
+    return true;
+  }
+  if (data.type === 'OPEN_CHECKPOINT_PICKER') {
+    void handleCheckpointPicker(
+      requestId,
+      data.payload as { baseModelGroup?: string; currentVersionId?: number },
+    );
     return true;
   }
   if (data.type === 'SUBMIT_WORKFLOW' && isPanoBody(data.payload?.body)) {
