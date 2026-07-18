@@ -23,9 +23,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@civitai/app-sdk": "^0.25.1",
+    "@civitai/app-sdk": "^0.26.0",
     "@civitai/comfy-run-kit": "file:packages/comfy-run-kit",
-    "@civitai/blocks-react": "^0.32.0",
+    "@civitai/blocks-react": "^0.33.0",
     "@photo-sphere-viewer/core": "^5.11.0"
   },
   "devDependencies": {

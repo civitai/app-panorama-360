@@ -9,7 +9,6 @@ import { BridgeGateway } from '@civitai/comfy-run-kit/bridge';
 
 import { BUDGETED_SCOPE } from './generation.js';
 import type { WorkflowBridge } from './controller.js';
-import type { CustomComfyBody } from './panorama.js';
 
 export interface BuzzBalance {
   blue: number;
@@ -53,13 +52,10 @@ export function createBlockSession(transport: BlockTransport = getTransport()): 
       return Array.isArray(scopes) && scopes.includes(BUDGETED_SCOPE);
     },
 
-    async estimate(body: WorkflowBody | CustomComfyBody): Promise<BlockWorkflowSnapshot> {
+    async estimate(body: WorkflowBody): Promise<BlockWorkflowSnapshot> {
       const payload = await sendTypedRequest(
         transport,
-        // TODO(sdk-0.26): drop the cast once `WorkflowBody` gains the
-        // `customComfy` arm (PR #171). The wire is untyped postMessage; the
-        // real bridge validates the recipe body server-side (civitai #3228).
-        { type: 'ESTIMATE_WORKFLOW', payload: { body: body as WorkflowBody } },
+        { type: 'ESTIMATE_WORKFLOW', payload: { body } },
         'ESTIMATE_RESULT',
       );
       return payload.snapshot;

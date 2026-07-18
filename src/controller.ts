@@ -17,7 +17,6 @@ import {
   ZIMAGE_NODE_LABELS,
   buildCustomComfyBody,
   buildHostedBody,
-  type CustomComfyBody,
   type DitEngine,
   type PanoCheckpoint,
   type PanoMode,
@@ -51,9 +50,7 @@ const MODE_NODE_LABELS: Record<PanoMode, Record<string, string>> = {
 
 /** What the controller needs from the host bridge. */
 export interface WorkflowBridge {
-  // `CustomComfyBody` is the interim local type until SDK 0.26/0.33 (PR #171)
-  // add the `customComfy` arm to `WorkflowBody`; see panorama.ts.
-  estimate(body: WorkflowBody | CustomComfyBody): Promise<BlockWorkflowSnapshot>;
+  estimate(body: WorkflowBody): Promise<BlockWorkflowSnapshot>;
   /** Where submit/poll/cancel go — a kit gateway over the same transport. */
   gateway: RunGateway;
 }
@@ -142,10 +139,9 @@ export class GenerationController {
     // Seamless/DiT modes now ride the REAL bridge as the server-owned bounded
     // `customComfy` recipe (civitai #3228). The bounded recipe owns the graph
     // AND the checkpoint, so no client checkpoint is threaded here (Standard/
-    // hosted textToImage still honours the picker). `CustomComfyBody` is the
-    // interim type until SDK 0.26/0.33 (PR #171); both `.estimate` and the
-    // gateway's `submit`/`start` accept it.
-    const body: WorkflowBody | CustomComfyBody =
+    // hosted textToImage still honours the picker). The `customComfy` body is
+    // now the SDK's `WorkflowBody` `customComfy` arm (SDK 0.26/0.33, PR #171).
+    const body: WorkflowBody =
       req.mode === 'hosted'
         ? buildHostedBody(req.prompt, req.seed, req.accountType, req.checkpoint)
         : buildCustomComfyBody(req.prompt, req.seed, req.accountType, MODE_ENGINE[req.mode]);

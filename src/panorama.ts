@@ -1,7 +1,12 @@
 // Pure Panorama Studio logic — bodies, Comfy graph translations, doc mapping.
 // No DOM; unit-tested in node (panorama.test.ts).
 
-import type { BlockWorkflowSnapshot, BuzzAccountType, WorkflowBody } from '@civitai/app-sdk/blocks';
+import type {
+  BlockWorkflowSnapshot,
+  BuzzAccountType,
+  WorkflowBodyCustomComfy,
+  WorkflowBodyTextToImage,
+} from '@civitai/app-sdk/blocks';
 import type { OrchWorkflowDoc } from '@civitai/comfy-run-kit';
 
 // The platform's block bridge accepts only `kind: 'textToImage'` today. The
@@ -19,7 +24,17 @@ export type PanoMode = 'zimage' | 'flux2' | 'qwen' | 'hosted';
  * legacy conv-wrap engine — retained only for the `dev:orch` local fallback +
  * the legacy `pano360` body; no v1 user-facing mode maps to it.
  */
-export type PanoEngine = 'sdxl' | 'zimage-turbo' | 'flux2-klein' | 'qwen-image';
+export const PANO_ENGINES = ['sdxl', 'zimage-turbo', 'flux2-klein', 'qwen-image'] as const;
+export type PanoEngine = (typeof PANO_ENGINES)[number];
+
+/**
+ * Runtime guard for `PanoEngine`. Needed because the SDK's `customComfy` arm
+ * types `params.engine` as the open `string` — when translating an inbound
+ * recipe body back to a `PanoBody` (dev:orch fallback) we only adopt an engine
+ * this app actually knows, and drop anything unrecognized to the recipe default.
+ */
+export const isPanoEngine = (v: unknown): v is PanoEngine =>
+  typeof v === 'string' && (PANO_ENGINES as readonly string[]).includes(v);
 
 /** A picked SDXL checkpoint (from the host's checkpoint picker). */
 export interface PanoCheckpoint {
@@ -228,11 +243,12 @@ export function buildPanoBody(
 // on the REAL bridge — `pano360` + the client-side graph builders now serve
 // ONLY the optional `dev:orch` local fallback (orch-host.ts).
 //
-// TODO(sdk-0.26): drop `CustomComfyBody` and use `WorkflowBody`'s `customComfy`
-// arm once `@civitai/app-sdk@0.26` / `@civitai/blocks-react@0.33` (civitai-app-
-// starters PR #171) publish. Until then the union is textToImage-only, so we
-// carry this minimal local mirror of the server's recipe body and hand it to
-// `BridgeGateway.submit`/`RunController.start` (both take `unknown`).
+// The SDK's `WorkflowBody` is now a discriminated union whose `customComfy` arm
+// (`WorkflowBodyCustomComfy`) IS the server's recipe body — shipped in
+// `@civitai/app-sdk@0.26` / `@civitai/blocks-react@0.33` (civitai-app-starters
+// PR #171). We build/guard/translate that SDK type directly; the app's engine
+// enum (`RecipeEngine`) is narrower than the SDK arm's `engine?: string`, which
+// is assignable.
 
 /** The server-owned recipe key this app's block workflows target. */
 export const CUSTOM_COMFY_RECIPE = 'seamless-pano-360' as const;
@@ -254,12 +270,6 @@ export interface CustomComfyParams {
   accountType?: BuzzAccountType;
 }
 
-export interface CustomComfyBody {
-  kind: 'customComfy';
-  recipe: typeof CUSTOM_COMFY_RECIPE;
-  params: CustomComfyParams;
-}
-
 /**
  * The real-bridge body for the DiT seamless modes. `engine` is the recipe enum
  * — one of `zimage-turbo`/`flux2-klein`/`qwen-image`, always set (v1 is
@@ -272,14 +282,14 @@ export function buildCustomComfyBody(
   seed: number | undefined,
   accountType: BuzzAccountType | undefined,
   engine: DitEngine,
-): CustomComfyBody {
+): WorkflowBodyCustomComfy {
   const params: CustomComfyParams = { prompt: clampPrompt(prompt), engine };
   if (seed !== undefined) params.seed = seed;
   if (accountType) params.accountType = accountType;
   return { kind: 'customComfy', recipe: CUSTOM_COMFY_RECIPE, params };
 }
 
-export const isCustomComfyBody = (body: unknown): body is CustomComfyBody =>
+export const isCustomComfyBody = (body: unknown): body is WorkflowBodyCustomComfy =>
   typeof body === 'object' &&
   body !== null &&
   (body as { kind?: unknown }).kind === 'customComfy' &&
@@ -291,11 +301,11 @@ export const isCustomComfyBody = (body: unknown): body is CustomComfyBody =>
  * `sdxl` (the recipe default). The bounded recipe carries no checkpoint, so
  * dev:orch uses the default SDXL checkpoint — matching the server-owned graph.
  */
-export function customComfyToPanoBody(body: CustomComfyBody): PanoBody {
+export function customComfyToPanoBody(body: WorkflowBodyCustomComfy): PanoBody {
   const pano: PanoBody = { kind: 'pano360', prompt: clampPrompt(body.params.prompt) };
   if (typeof body.params.seed === 'number') pano.seed = body.params.seed;
   if (body.params.accountType) pano.accountType = body.params.accountType;
-  if (body.params.engine) pano.engine = body.params.engine;
+  if (isPanoEngine(body.params.engine)) pano.engine = body.params.engine;
   return pano;
 }
 
@@ -318,8 +328,8 @@ export function buildHostedBody(
   seed?: number,
   accountType?: BuzzAccountType,
   checkpoint?: PanoCheckpoint,
-): WorkflowBody {
-  const body: WorkflowBody = {
+): WorkflowBodyTextToImage {
+  const body: WorkflowBodyTextToImage = {
     kind: 'textToImage',
     modelId: checkpoint?.modelId ?? CHECKPOINT_MODEL_ID,
     modelVersionId: checkpoint?.versionId ?? CHECKPOINT_VERSION_ID,
