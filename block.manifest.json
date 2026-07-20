@@ -1,15 +1,17 @@
 {
   "$schema": "https://civitai.com/schemas/app-block/v1.json",
   "blockId": "panorama-360",
-  "version": "0.1.0",
-  "name": "360° Panorama Studio",
+  "version": "0.1.1",
+  "name": "360\u00b0 Panorama Studio",
   "type": "block",
-  "scopes": ["ai:write:budgeted"],
+  "scopes": [
+    "ai:write:budgeted"
+  ],
   "page": {
     "path": "/",
-    "title": "360° Panorama Studio",
+    "title": "360\u00b0 Panorama Studio",
     "icon": "camera",
-    "buzzBudgetPerGen": 120
+    "buzzBudgetPerGen": 200
   },
   "iframe": {
     "minHeight": 700,

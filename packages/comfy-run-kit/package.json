@@ -22,8 +22,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "peerDependencies": {
-    "@civitai/app-sdk": ">=0.25",
-    "@civitai/blocks-react": ">=0.32"
+    "@civitai/app-sdk": ">=0.26",
+    "@civitai/blocks-react": ">=0.33"
   },
   "peerDependenciesMeta": {
     "@civitai/app-sdk": { "optional": true },

@@ -17,11 +17,15 @@ import type { PanoGallery } from './pano-gallery.js';
 import type { PanoStatus } from './pano-status.js';
 import type { PanoViewer } from './pano-viewer.js';
 
-// customComfy modes need a host that understands the proposed `pano360` kind —
-// today that's the dev orch harness; the mock harness simulates any body.
-const SEAMLESS_AVAILABLE =
-  import.meta.env.VITE_DEV_HARNESS === 'true' &&
-  import.meta.env.VITE_HARNESS_MODE !== 'live';
+// The platform bridge now owns the bounded `customComfy` recipe (civitai
+// #3228), so the seamless/DiT modes run on the REAL bridge — production and the
+// dev tunnel (`dev:live`) — not just the dev harness. `dev:orch` still
+// translates them locally (optional offline fallback) and the mock harness
+// (`dev:harness`) simulates any body, so every path handles them → always on.
+// 🔴 HOLD: the real bridge REJECTS `customComfy` until civitai #3228 is
+// deployed to dp-prod AND @civitai/app-sdk@0.26 / blocks-react@0.33 (PR #171)
+// publish. Do not rebuild-for-prod before both land.
+const SEAMLESS_AVAILABLE = true;
 
 export class PanoApp extends HTMLElement {
   /** Injectable for tests; defaults to the real transport-backed session. */
@@ -206,7 +210,9 @@ export class PanoApp extends HTMLElement {
       return;
     }
     request.mode = this.#controls.mode;
-    if (this.#checkpoint && (request.mode === 'seamless' || request.mode === 'hosted')) {
+    // Only the hosted (Standard) textToImage path reads a checkpoint; the
+    // bounded DiT recipe owns its models server-side.
+    if (this.#checkpoint && request.mode === 'hosted') {
       request.checkpoint = { modelId: this.#checkpoint.modelId, versionId: this.#checkpoint.versionId };
     }
     if (!session.canGenerate()) {

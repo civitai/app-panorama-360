@@ -39,18 +39,32 @@ The registry build of the seamless pack deep-copies the model/VAE on its
 in-place option) is avoided in favor of `MakeCircularVAE` + stock `VAEDecode`.
 Safe in a one-shot job container.
 
-## Three generation modes
+## v1 generation modes
+
+The v1 lineup is the **three DiT seamless engines** plus a plain **Standard**
+(SDXL) mode. Each DiT engine rides the platform's bounded server-owned
+`customComfy` recipe (`recipe: 'seamless-pano-360'`, civitai #3228) — the block
+sends only knobs (`{ prompt, seed?, engine, accountType? }`), the server owns
+the graph.
 
 | Mode | Submit body | Recipe | Seam | ~Cost |
 |------|-------------|--------|------|-------|
-| **Seamless (SDXL)** | proposed `kind: 'pano360'` (`engine: 'sdxl'`) → customComfy template | SDXL + 360 LoRA + circular conv wrap | none (wrapped) | 30–90 Buzz |
-| **Fast (Z-Image)** | `kind: 'pano360'` (`engine: 'zimage-turbo'`) → customComfy template | Z-Image Turbo (8 steps, cfg 1) + 360 LoRA, then a **seam-heal pass**: roll the image 50% (crop+stitch — the wrap edge lands center), inpaint a feathered band across it (`SetLatentNoiseMask`, denoise 0.7), roll back. All stock nodes — no nodepack, single step | healed (measured wrap ratio ~1.3 vs the SDXL wrap's ~1.2; a raw generation is 5–20×) | 15–25 Buzz |
-| **Standard** | `kind: 'textToImage'` (works through the real block bridge today) | SDXL + 360 LoRA, plain generation | visible | 30–90 Buzz |
+| **Z-Image Turbo** *(recommended)* | `customComfy` (`engine: 'zimage-turbo'`) | Z-Image Turbo (8 steps, cfg 1) + 360 LoRA, then a **seam-heal pass**: roll the image 50% (crop+stitch — the wrap edge lands center), inpaint a feathered band across it (`SetLatentNoiseMask`, denoise 0.7), roll back | healed (measured wrap ratio ~1.3; a raw generation is 5–20×) | 15–25 Buzz |
+| **Flux2 Klein** | `customComfy` (`engine: 'flux2-klein'`) | FLUX.2 Klein 9B + 360 LoRA, fleet sampler stack, then the same seam-heal pass | healed | 30–60 Buzz |
+| **Qwen Image** | `customComfy` (`engine: 'qwen-image'`) | Qwen Image 20B + 360 LoRA, then the same seam-heal pass | healed | 120–180 Buzz |
+| **Standard** | `kind: 'textToImage'` (plain block bridge) | SDXL + 360 LoRA, plain generation, **checkpoint-pickable** | visible | 30–90 Buzz |
 
-The customComfy modes (`pano360`) run in the dev `dev:orch` harness today;
-embedding them on civitai.com needs the block bridge to grow the `pano360`
-kind. All modes share one UI, run card, poll loop, and viewer; the app
-auto-disables the customComfy modes when the host can't run them.
+> **Deferred to v2 — SDXL seamless (conv-wrap).** The truly-seamless SDXL path
+> (`SeamlessTile` circular-conv wrap + `MakeCircularVAE`, no seam-heal needed)
+> needs a nodepack bake before it can run on the bounded recipe, so it is **not
+> offered in v1**. Its graph/template builders (`buildSeamlessGraph`,
+> `buildSeamlessTemplate`, `engine: 'sdxl'`) remain in `panorama.ts` for the
+> `dev:orch` local fallback and the v2 revival.
+
+All modes share one UI, run card, poll loop, and viewer; the app auto-disables
+the DiT (customComfy) modes when the host can't run them and falls back to
+Standard. `dev:orch` still translates the `customComfy` bodies back to the
+internal templates locally for offline dev.
 
 Z-Image is a DiT (no UNet convs), so the SeamlessTile circular-padding trick
 can't apply — that's what the roll-and-inpaint pass is for. Its graph mirrors
@@ -61,14 +75,16 @@ canonical AIR) — `zimage:lora` fails resource resolution on the workers.
 
 ## Picking the SDXL checkpoint
 
-The Model row (SDXL modes) opens the host's **checkpoint picker**
-(`OPEN_CHECKPOINT_PICKER`, filtered to the SDXL family): civitai.com opens its
-native model-select modal, the mock host answers with a canned pick, and
-`dev:orch` opens the SDK's searchable catalog overlay through the vite `/api`
-proxy. A pick is discovery-only — the server re-validates the id at submit —
-and the picked checkpoint rides `body.checkpoint` into the customComfy graph
-(or `modelId`/`modelVersionId` in hosted mode). A checkpoint that isn't warm
-on the worker downloads during "Preparing" (unbilled; the run card shows %).
+The Model row shows **only in Standard (hosted) mode** — the bounded DiT recipe
+owns its models server-side, so a checkpoint pick does nothing on those paths.
+It opens the host's **checkpoint picker** (`OPEN_CHECKPOINT_PICKER`, filtered to
+the SDXL family): civitai.com opens its native model-select modal, the mock host
+answers with a canned pick, and `dev:orch` opens the SDK's searchable catalog
+overlay through the vite `/api` proxy. A pick is discovery-only — the server
+re-validates the id at submit — and the picked checkpoint rides
+`modelId`/`modelVersionId` into the hosted `textToImage` body. A checkpoint that
+isn't warm on the worker downloads during "Preparing" (unbilled; the run card
+shows %).
 
 ## The run experience — `@civitai/comfy-run-kit`
 

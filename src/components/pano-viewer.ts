@@ -5,6 +5,27 @@
 
 import type { Viewer } from '@photo-sphere-viewer/core';
 
+// PSV's Viewer HARD-requires WebGL 2 and throws `PSVError: WebGL 2 is not
+// supported` from its ASYNC load (so a synchronous try/catch around
+// `new Viewer(...)` never catches it) on WebGL-1-only environments — hardware
+// acceleration off, some Linux GPU/driver setups (reproduced in Firefox AND
+// Brave, i.e. an environment WebGL-2 gap, not an iframe/sandbox one). Probe the
+// capability ONCE up front so we can fall back to the flat image deterministically
+// instead of relying on catching PSV's async throw.
+let webgl2Supported: boolean | undefined;
+export function isWebGL2Supported(): boolean {
+  if (webgl2Supported !== undefined) return webgl2Supported;
+  try {
+    const canvas = document.createElement('canvas');
+    // `getContext` can be absent (non-canvas stub) or throw — treat either as
+    // "no WebGL 2" rather than letting it bubble.
+    webgl2Supported = typeof canvas.getContext === 'function' && !!canvas.getContext('webgl2');
+  } catch {
+    webgl2Supported = false;
+  }
+  return webgl2Supported;
+}
+
 export class PanoViewer extends HTMLElement {
   #viewer: Viewer | null = null;
   #stage: HTMLDivElement | null = null;
@@ -50,6 +71,15 @@ export class PanoViewer extends HTMLElement {
       if (this.#placeholder) this.#placeholder.style.display = '';
       return;
     }
+    // No WebGL 2 → skip PSV entirely and show the flat panorama deterministically.
+    // (PSV throws `WebGL 2 is not supported` from its async load, which the
+    // try/catch below can't reliably catch — hence the up-front short-circuit.)
+    if (!isWebGL2Supported()) {
+      this.#viewer?.destroy();
+      this.#viewer = null;
+      this.#showFallback(value);
+      return;
+    }
     try {
       if (!this.#viewer) {
         const { Viewer } = await import('@photo-sphere-viewer/core');
@@ -88,7 +118,11 @@ export class PanoViewer extends HTMLElement {
     }
   }
 
-  /** Flat <img> fallback (plus open-in-tab) when WebGL/CORS blocks the texture. */
+  /**
+   * Flat <img> fallback (plus a why-line and open-in-tab) when WebGL 2 is absent
+   * or CORS/texture load blocks the interactive viewer. The generated panorama
+   * is still fully useful as a flat image.
+   */
   #showFallback(url: string): void {
     if (!this.#stage) return;
     this.#stage.textContent = '';
@@ -99,12 +133,17 @@ export class PanoViewer extends HTMLElement {
     const note = document.createElement('div');
     note.className = 'pn-viewer-placeholder';
     note.style.placeItems = 'end center';
+    // Explain WHY the interactive viewer isn't showing so a WebGL-2-less user
+    // knows it's their browser/GPU, not a broken render.
+    const why = document.createElement('div');
+    why.textContent =
+      'Interactive 360° needs WebGL 2 — try enabling hardware acceleration in your browser.';
     const link = document.createElement('a');
     link.href = url;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    link.textContent = '360° view unavailable here — open the image in a new tab';
-    note.appendChild(link);
+    link.textContent = 'Open the image in a new tab';
+    note.append(why, link);
     this.#stage.append(img, note);
     this.#placeholder = null;
   }
