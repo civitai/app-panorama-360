@@ -1,7 +1,7 @@
 {
   "$schema": "https://civitai.com/schemas/app-block/v1.json",
   "blockId": "panorama-360",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "name": "360\u00b0 Panorama Studio",
   "type": "block",
   "scopes": [

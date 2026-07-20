@@ -1,15 +1,15 @@
 {
   "name": "panorama-360",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
-  "description": "Civitai App (page money path) — generate seamless 360° equirectangular panoramas via customComfy and explore them in an embedded Photo Sphere Viewer.",
+  "description": "Civitai App (page money path) \u2014 generate seamless 360\u00b0 equirectangular panoramas via customComfy and explore them in an embedded Photo Sphere Viewer.",
   "license": "MIT",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "postinstall": "node -e \"console.log('\\n✓ Installed. Next: npm run dev:harness   (preview — mock host, no Buzz)\\n  real seamless panoramas: npm run dev:orch (spends REAL Buzz, ~30-90/pano)   ·   publish: civitai app submit')\"",
+    "postinstall": "node -e \"console.log('\\n\u2713 Installed. Next: npm run dev:harness   (preview \u2014 mock host, no Buzz)\\n  real seamless panoramas: npm run dev:orch (spends REAL Buzz, ~30-90/pano)   \u00b7   publish: civitai app submit')\"",
     "dev": "vite",
     "dev:harness": "VITE_DEV_HARNESS=true VITE_HARNESS_MODE=mock vite --host 127.0.0.1 --port 5187",
     "dev:orch": "VITE_DEV_HARNESS=true VITE_HARNESS_MODE=orch vite --host 127.0.0.1 --port 5187",
