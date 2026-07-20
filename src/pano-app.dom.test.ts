@@ -131,6 +131,12 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 beforeEach(() => {
   document.body.innerHTML = '';
   viewerInstances.length = 0;
+  // <pano-viewer> now pre-checks WebGL 2 and short-circuits to a flat fallback
+  // when it's absent (jsdom has no WebGL). These suites exercise the PSV path, so
+  // make the capability probe report WebGL 2 as available.
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+    ((id: string) => (id === 'webgl2' ? ({} as unknown) : null)) as HTMLCanvasElement['getContext'],
+  );
 });
 
 describe('<pano-controls>', () => {
