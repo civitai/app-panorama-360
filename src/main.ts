@@ -1,4 +1,7 @@
 import '@photo-sphere-viewer/core/index.css';
+// Design-system tokens (`--civitai-*`) — an explicit, first-paint token source.
+// Imported BEFORE ./styles.css so the app's `--pn-*` layer resolves against it.
+import '@civitai/theme/styles.css';
 import './styles.css';
 
 import { registerElements } from './registry.js';

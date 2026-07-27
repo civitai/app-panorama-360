@@ -3,38 +3,60 @@
    iframe page. Theme comes from the host via BLOCK_INIT and is stamped as
    data-theme on <html>. */
 
-:root {
-  --pn-bg: #f1f3f5;
-  --pn-surface: #ffffff;
-  --pn-surface-2: #f8f9fa;
-  --pn-border: #dee2e6;
-  --pn-text: #212529;
-  --pn-text-muted: #868e96;
-  --pn-primary: #0b7285;
-  --pn-primary-contrast: #ffffff;
-  --pn-warning-bg: #fff9db;
-  --pn-warning-text: #997404;
-  --pn-error-bg: #fff5f5;
-  --pn-error-text: #c92a2a;
-  --pn-success-bg: #ebfbee;
-  --pn-success-text: #2b8a3e;
-}
+/* ── Design-system token layer ──────────────────────────────────────────────
+   The app's semantic `--pn-*` variables are re-sourced ENTIRELY from the
+   Civitai design-system tokens (`--civitai-*`, imported from
+   `@civitai/theme/styles.css` at the entry point). There is a SINGLE
+   definition: light↔dark is driven purely by the `--civitai-*` tokens flipping
+   under `[data-theme]`, so this app owns zero theme-specific color values.
 
-:root[data-theme='dark'] {
-  --pn-bg: #101113;
-  --pn-surface: #1a1b1e;
-  --pn-surface-2: #141517;
-  --pn-border: #2c2e33;
-  --pn-text: #e9ecef;
-  --pn-text-muted: #909296;
-  --pn-primary: #22b8cf;
-  --pn-primary-contrast: #0b1416;
-  --pn-warning-bg: #2b2410;
-  --pn-warning-text: #ffd43b;
-  --pn-error-bg: #2b1414;
-  --pn-error-text: #ffa8a8;
-  --pn-success-bg: #12261a;
-  --pn-success-text: #69db7c;
+   Two traps the design system imposes (respected below):
+   1. The `--civitai-color-gray-*` ramp is theme-INVARIANT — never map a surface
+      to it. We don't.
+   2. In LIGHT theme `body == surface == surface-2` (all `#fefefe`). So a
+      recessed/elevated surface CANNOT come from `--civitai-color-surface-2`
+      (invisible white-on-white in light). We synthesize recesses with a
+      `color-mix()` of text into surface, which reads in BOTH themes, and always
+      pair them with a border. */
+:root {
+  /* structural surfaces */
+  --pn-bg: var(--civitai-color-body);
+  --pn-surface: var(--civitai-color-surface);
+  /* elevate: a subtle recess that works in both themes (surface-2 == body in
+     light, so we mix text into surface instead — never surface-2 as a fill). */
+  --pn-surface-2: color-mix(in srgb, var(--civitai-color-text) 4%, var(--civitai-color-surface));
+  --pn-surface-hover: color-mix(in srgb, var(--civitai-color-text) 7%, var(--civitai-color-surface));
+  --pn-border: var(--civitai-color-border);
+
+  /* text */
+  --pn-text: var(--civitai-color-text);
+  --pn-text-muted: var(--civitai-color-text-dimmed);
+
+  /* accent */
+  --pn-primary: var(--civitai-color-primary);
+  --pn-primary-hover: var(--civitai-color-primary-hover);
+  --pn-primary-contrast: var(--civitai-color-primary-fg);
+  --pn-primary-light: var(--civitai-color-primary-light);
+
+  /* semantic alert tints — bg is a low tint over surface, text is deepened
+     toward `text` (which is the high-contrast extreme in either theme, so this
+     lifts contrast in BOTH light and dark), border is a mid tint. */
+  --pn-warning-bg: color-mix(in srgb, var(--civitai-color-warning) 12%, var(--civitai-color-surface));
+  --pn-warning-text: color-mix(in srgb, var(--civitai-color-warning) 65%, var(--civitai-color-text));
+  --pn-warning-border: color-mix(in srgb, var(--civitai-color-warning) 34%, var(--civitai-color-border));
+  --pn-error-bg: color-mix(in srgb, var(--civitai-color-error) 12%, var(--civitai-color-surface));
+  --pn-error-text: color-mix(in srgb, var(--civitai-color-error) 65%, var(--civitai-color-text));
+  --pn-error-border: color-mix(in srgb, var(--civitai-color-error) 34%, var(--civitai-color-border));
+  --pn-success-bg: color-mix(in srgb, var(--civitai-color-success) 14%, var(--civitai-color-surface));
+  --pn-success-text: color-mix(in srgb, var(--civitai-color-success) 68%, var(--civitai-color-text));
+  --pn-success-border: color-mix(in srgb, var(--civitai-color-success) 34%, var(--civitai-color-border));
+
+  /* geometry / type */
+  --pn-radius-sm: 8px;
+  --pn-radius-md: 12px;
+  --pn-radius-pill: 999px;
+  --pn-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.18);
+  --pn-focus: 0 0 0 2px var(--civitai-color-body), 0 0 0 4px var(--civitai-color-primary);
 }
 
 * {
@@ -51,14 +73,11 @@ body {
   margin: 0;
   background: var(--pn-bg);
   color: var(--pn-text);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+  font-family: var(--civitai-font);
   font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 pano-app {
@@ -66,7 +85,7 @@ pano-app {
   min-height: 100dvh;
   justify-content: center;
   align-items: flex-start;
-  padding: 24px;
+  padding: clamp(12px, 3vw, 28px);
 }
 
 .pn-card {
@@ -74,33 +93,72 @@ pano-app {
   max-width: 860px;
   background: var(--pn-surface);
   border: 1px solid var(--pn-border);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: var(--pn-radius-md);
+  padding: clamp(16px, 3vw, 24px);
   display: grid;
-  gap: 16px;
+  gap: 18px;
+  box-shadow: var(--pn-shadow);
+}
+
+/* ── header / brand ─────────────────────────────────────────────────────── */
+
+.pn-header {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--pn-border);
+}
+
+.pn-brand {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--pn-radius-sm);
+  background: var(--pn-primary-light);
+  color: var(--pn-primary);
+}
+
+.pn-brand svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.pn-header-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
 .pn-title {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .pn-desc,
 .pn-muted {
   font-size: 12px;
+  line-height: 1.45;
   color: var(--pn-text-muted);
 }
 
 .pn-field {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .pn-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: -0.005em;
 }
+
+/* ── inputs ─────────────────────────────────────────────────────────────── */
 
 .pn-input,
 .pn-textarea {
@@ -108,40 +166,83 @@ pano-app {
   background: var(--pn-surface-2);
   color: var(--pn-text);
   border: 1px solid var(--pn-border);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: var(--pn-radius-sm);
+  padding: 9px 11px;
   font: inherit;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.pn-input::placeholder,
+.pn-textarea::placeholder {
+  color: var(--pn-text-muted);
+}
+
+.pn-input:hover:not(:disabled),
+.pn-textarea:hover:not(:disabled) {
+  border-color: var(--pn-primary);
 }
 
 .pn-textarea {
   resize: vertical;
-  min-height: 60px;
+  min-height: 66px;
 }
 
 .pn-input:focus-visible,
 .pn-textarea:focus-visible,
 .pn-chip:focus-visible,
-.pn-btn:focus-visible {
+.pn-btn:focus-visible,
+.pn-thumb:focus-visible {
   outline: 2px solid var(--pn-primary);
-  outline-offset: 1px;
+  outline-offset: 2px;
+}
+
+.pn-input:focus,
+.pn-textarea:focus {
+  border-color: var(--pn-primary);
+  box-shadow: 0 0 0 3px var(--pn-primary-light);
+}
+
+.pn-input:disabled,
+.pn-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .pn-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
 }
 
+/* ── chips (preset + mode radios) ───────────────────────────────────────── */
+
 .pn-chip {
-  padding: 6px 14px;
-  border-radius: 999px;
+  padding: 7px 14px;
+  border-radius: var(--pn-radius-pill);
   border: 1px solid var(--pn-border);
   background: var(--pn-surface);
   color: var(--pn-text);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.05s ease;
+}
+
+.pn-chip:hover:not(:disabled):not([aria-checked='true']) {
+  border-color: var(--pn-primary);
+  background: var(--pn-surface-hover);
+}
+
+.pn-chip:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .pn-chip[aria-checked='true'] {
@@ -152,12 +253,18 @@ pano-app {
 
 .pn-chip:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
+/* ── buttons ────────────────────────────────────────────────────────────── */
+
 .pn-btn {
-  padding: 10px 16px;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  border-radius: var(--pn-radius-sm);
   border: 1px solid var(--pn-primary);
   background: var(--pn-primary);
   color: var(--pn-primary-contrast);
@@ -165,11 +272,31 @@ pano-app {
   font-weight: 700;
   cursor: pointer;
   width: 100%;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.05s ease,
+    opacity 0.15s ease;
+}
+
+.pn-btn:hover:not(:disabled) {
+  background: var(--pn-primary-hover);
+  border-color: var(--pn-primary-hover);
+}
+
+.pn-btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .pn-btn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.pn-btn svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 .pn-btn--subtle {
@@ -178,30 +305,41 @@ pano-app {
   color: var(--pn-text);
   border-color: var(--pn-border);
   font-weight: 600;
-  padding: 6px 12px;
+  padding: 7px 12px;
   font-size: 13px;
 }
 
+.pn-btn--subtle:hover:not(:disabled) {
+  background: var(--pn-surface-hover);
+  border-color: var(--pn-primary);
+}
+
+/* ── alerts ─────────────────────────────────────────────────────────────── */
+
 .pn-alert {
-  border-radius: 8px;
+  border-radius: var(--pn-radius-sm);
   padding: 10px 12px;
   font-size: 13px;
+  line-height: 1.45;
   border: 1px solid var(--pn-border);
 }
 
 .pn-alert--warning {
   background: var(--pn-warning-bg);
   color: var(--pn-warning-text);
+  border-color: var(--pn-warning-border);
 }
 
 .pn-alert--error {
   background: var(--pn-error-bg);
   color: var(--pn-error-text);
+  border-color: var(--pn-error-border);
 }
 
 .pn-alert--success {
   background: var(--pn-success-bg);
   color: var(--pn-success-text);
+  border-color: var(--pn-success-border);
 }
 
 .pn-alert--info {
@@ -209,17 +347,29 @@ pano-app {
   color: var(--pn-text);
 }
 
+/* ── balance strip ──────────────────────────────────────────────────────── */
+
 .pn-balance {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px 16px;
   align-items: center;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: 9px 13px;
+  border-radius: var(--pn-radius-sm);
   border: 1px solid var(--pn-border);
   background: var(--pn-surface-2);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+}
+
+.pn-balance-total {
+  margin-left: auto;
+  font-weight: 600;
+}
+
+.pn-pool {
+  display: inline-flex;
+  align-items: center;
 }
 
 .pn-pool-dot {
@@ -227,7 +377,8 @@ pano-app {
   height: 8px;
   border-radius: 50%;
   display: inline-block;
-  margin-right: 4px;
+  margin-right: 6px;
+  flex: none;
 }
 
 /* ── viewer ─────────────────────────────────────────────────────────────── */
@@ -241,8 +392,10 @@ pano-viewer {
   width: 100%;
   aspect-ratio: 2 / 1;
   max-height: 62vh;
-  border-radius: 10px;
+  border-radius: var(--pn-radius-md);
   overflow: hidden;
+  /* The 360° stage is a deliberate dark canvas in BOTH themes (a photo
+     lightbox), so this deep neutral is intentional and theme-invariant. */
   background: #0a1018;
   border: 1px solid var(--pn-border);
 }
@@ -257,10 +410,21 @@ pano-viewer {
   inset: 0;
   display: grid;
   place-items: center;
-  color: #74c0fc;
+  gap: 10px;
+  color: #9fb6d6;
   font-size: 13px;
   text-align: center;
-  padding: 16px;
+  padding: 20px;
+}
+
+.pn-viewer-placeholder svg {
+  width: 34px;
+  height: 34px;
+  opacity: 0.65;
+}
+
+.pn-viewer-placeholder a {
+  color: #74c0fc;
 }
 
 .pn-viewer-fallback {
@@ -282,7 +446,8 @@ pano-status > .pn-field:empty {
 }
 
 /* Theme bridge into the comfy-run-kit shadow elements: --crk-* custom
-   properties inherit through shadow boundaries. */
+   properties inherit through shadow boundaries. Every value is a `--pn-*`
+   token, so the kit follows the design system with zero extra config. */
 civitai-comfy-run,
 civitai-run-status,
 civitai-buzz-meter,
@@ -294,7 +459,8 @@ civitai-run-logs {
   --crk-muted: var(--pn-text-muted);
   --crk-accent: var(--pn-primary);
   --crk-danger: var(--pn-error-text);
-  --crk-code-bg: rgba(127, 127, 127, 0.12);
+  --crk-font: var(--civitai-font);
+  --crk-code-bg: color-mix(in srgb, var(--pn-text) 8%, transparent);
 }
 
 .pn-phase {
@@ -302,6 +468,7 @@ civitai-run-logs {
   gap: 8px;
   align-items: center;
   font-size: 13px;
+  color: var(--pn-text-muted);
 }
 
 .pn-spinner {
@@ -311,6 +478,7 @@ civitai-run-logs {
   border: 2px solid var(--pn-border);
   border-top-color: var(--pn-primary);
   animation: pn-spin 0.9s linear infinite;
+  flex: none;
 }
 
 @keyframes pn-spin {
@@ -330,18 +498,27 @@ pano-gallery {
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 4px;
+  scrollbar-width: thin;
 }
 
 .pn-thumb {
   flex: 0 0 auto;
   width: 132px;
   height: 66px;
-  border-radius: 6px;
+  border-radius: var(--pn-radius-sm);
   border: 2px solid transparent;
   padding: 0;
   overflow: hidden;
   cursor: pointer;
   background: var(--pn-surface-2);
+  transition:
+    border-color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.pn-thumb:hover {
+  border-color: var(--pn-border);
+  transform: translateY(-1px);
 }
 
 .pn-thumb[aria-pressed='true'] {
@@ -353,4 +530,23 @@ pano-gallery {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* ── responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 560px) {
+  .pn-title {
+    font-size: 18px;
+  }
+  .pn-brand {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
