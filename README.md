@@ -1,6 +1,9 @@
 # 360° Panorama Studio
 
-> Spun out into its own repo: **[`civitai/app-panorama-360`](https://github.com/civitai/app-panorama-360)**.
+> A **Civitai-maintained onsite App Block** — it runs in-platform at
+> `panorama-360.civit.ai`, embedded by the Civitai host. Open it via
+> [`civitai.com/apps/run/panorama-360`](https://civitai.com/apps/run/panorama-360),
+> not the bare subdomain. See the [Civitai developer docs](https://developer.civitai.com).
 
 A Civitai App (full-page block) that generates **seamless 360° equirectangular
 panoramas** with a customComfy workflow on the Civitai orchestrator and lets you
@@ -155,3 +158,10 @@ dev-stack's `.mcp.json` — generations bill **that token owner's account**.
   the first run after the grain deactivates) can be instantly "canceled" with
   nothing billed; the UI surfaces this as a "stopped before it started — try
   again" note, and a retry lands.
+
+## Links
+
+- Developer docs — [developer.civitai.com](https://developer.civitai.com)
+- Live app — [panorama-360.civit.ai](https://panorama-360.civit.ai)
+- SDK contract — [`@civitai/app-sdk`](https://www.npmjs.com/package/@civitai/app-sdk)
+- CLI — [`github.com/civitai/cli`](https://github.com/civitai/cli)
