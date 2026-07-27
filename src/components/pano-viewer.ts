@@ -18,8 +18,18 @@ export class PanoViewer extends HTMLElement {
     this.#stage.className = 'pn-viewer-stage';
     this.#placeholder = document.createElement('div');
     this.#placeholder.className = 'pn-viewer-placeholder';
-    this.#placeholder.textContent =
+    const icon = document.createElement('span');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"' +
+      ' stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="12" cy="12" r="9"/>' +
+      '<ellipse cx="12" cy="12" rx="9" ry="3.6"/>' +
+      '<path d="M12 3v18"/></svg>';
+    const text = document.createElement('span');
+    text.textContent =
       'Your 360° panorama will appear here — drag to look around once it does.';
+    this.#placeholder.append(icon, text);
     this.#stage.appendChild(this.#placeholder);
     this.appendChild(this.#stage);
     if (this.#src) void this.#apply(this.#src);

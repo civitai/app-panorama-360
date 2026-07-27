@@ -97,7 +97,22 @@ export class PanoApp extends HTMLElement {
     this.#cardEl.className = 'pn-card';
 
     const header = document.createElement('div');
-    header.className = 'pn-field';
+    header.className = 'pn-header';
+
+    // Brand mark: a globe/360 glyph (matches the manifest icon + favicon),
+    // tinted primary on primary-light — pure token color, flips with the theme.
+    const brand = document.createElement('div');
+    brand.className = 'pn-brand';
+    brand.setAttribute('aria-hidden', 'true');
+    brand.innerHTML =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"' +
+      ' stroke-linecap="round" stroke-linejoin="round">' +
+      '<circle cx="12" cy="12" r="9"/>' +
+      '<ellipse cx="12" cy="12" rx="9" ry="3.6"/>' +
+      '<path d="M12 3v18"/></svg>';
+
+    const headerText = document.createElement('div');
+    headerText.className = 'pn-header-text';
     const title = document.createElement('h1');
     title.className = 'pn-title';
     title.textContent = '360° Panorama Studio';
@@ -105,7 +120,8 @@ export class PanoApp extends HTMLElement {
     desc.className = 'pn-desc';
     desc.textContent =
       'Describe a scene, generate a 2:1 equirectangular panorama, then drag to stand inside it.';
-    header.append(title, desc);
+    headerText.append(title, desc);
+    header.append(brand, headerText);
 
     this.#loadingEl = document.createElement('div');
     this.#loadingEl.className = 'pn-alert pn-alert--info';
@@ -113,6 +129,8 @@ export class PanoApp extends HTMLElement {
 
     this.#balanceEl = document.createElement('div');
     this.#balanceEl.className = 'pn-balance';
+    this.#balanceEl.setAttribute('role', 'group');
+    this.#balanceEl.setAttribute('aria-label', 'Buzz balance');
     this.#balanceEl.style.display = 'none';
 
     this.#viewer = document.createElement('pano-viewer') as PanoViewer;
@@ -231,13 +249,18 @@ export class PanoApp extends HTMLElement {
     }
     this.#balanceEl.style.display = '';
     this.#balanceEl.textContent = '';
+    // Blue / Green / Yellow are Civitai's canonical Buzz-pool identity colors —
+    // brand-fixed data colors (a pool's color is the same in light and dark),
+    // NOT theme surface tokens, so they are intentionally literal here.
+    const POOL_COLORS = { blue: '#4dabf7', green: '#51cf66', yellow: '#ffd43b' } as const;
     const pools: Array<{ label: string; value: number; color: string }> = [
-      { label: 'Blue', value: balance.blue, color: '#4dabf7' },
-      { label: 'Green', value: balance.green, color: '#51cf66' },
-      { label: 'Yellow', value: balance.yellow, color: '#ffd43b' },
+      { label: 'Blue', value: balance.blue, color: POOL_COLORS.blue },
+      { label: 'Green', value: balance.green, color: POOL_COLORS.green },
+      { label: 'Yellow', value: balance.yellow, color: POOL_COLORS.yellow },
     ];
     for (const pool of pools) {
       const chip = document.createElement('span');
+      chip.className = 'pn-pool';
       const dot = document.createElement('span');
       dot.className = 'pn-pool-dot';
       dot.style.background = pool.color;
@@ -245,7 +268,7 @@ export class PanoApp extends HTMLElement {
       this.#balanceEl.appendChild(chip);
     }
     const total = document.createElement('span');
-    total.style.marginLeft = 'auto';
+    total.className = 'pn-balance-total';
     total.textContent = `Total ${formatCost(balance.blue + balance.green + balance.yellow)} Buzz`;
     this.#balanceEl.appendChild(total);
   }
