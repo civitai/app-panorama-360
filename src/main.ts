@@ -5,6 +5,17 @@ import '@civitai/theme/styles.css';
 import './styles.css';
 
 import { registerElements } from './registry.js';
+import { installStorageFallback } from './safe-storage.js';
+
+// The production block iframe has no `allow-same-origin`, so `localStorage`
+// THROWS at its opaque origin. Install the in-memory fallback as early as the
+// module graph allows, so any dependency that touches storage unguarded gets a
+// working object instead of a SecurityError. Static imports are hoisted above
+// this statement, so it cannot protect import-time access in the modules above
+// (none of which touch storage today); the guarantee that matters is in
+// <pano-viewer>, which re-invokes this immediately before dynamically importing
+// Photo Sphere Viewer — the one dependency known to read storage unguarded.
+installStorageFallback();
 
 // Production builds set no harness env, so the dynamic import is statically
 // dead and the whole dev harness is tree-shaken out of `vite build`.
