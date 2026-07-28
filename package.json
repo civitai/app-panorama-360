@@ -1,7 +1,7 @@
 {
   "name": "panorama-360",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "description": "Civitai App (page money path) — generate seamless 360° equirectangular panoramas via customComfy and explore them in an embedded Photo Sphere Viewer.",
   "license": "MIT",
@@ -23,8 +23,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@civitai/app-sdk": "^0.25.1",
-    "@civitai/blocks-react": "^0.32.0",
+    "@civitai/app-sdk": "^0.26.0",
+    "@civitai/blocks-react": "^0.35.2",
     "@civitai/comfy-run-kit": "file:packages/comfy-run-kit",
     "@civitai/theme": "^0.2.0",
     "@photo-sphere-viewer/core": "^5.11.0"
