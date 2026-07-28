@@ -10,38 +10,38 @@ import {
   FLUX2_ESTIMATE_BUZZ,
   FLUX2_NODE_LABELS,
   PANORAMA_ESTIMATE_BUZZ,
-  PANO_NODE_LABELS,
   QWEN_ESTIMATE_BUZZ,
   QWEN_NODE_LABELS,
   STANDARD_NODE_LABELS,
   ZIMAGE_ESTIMATE_BUZZ,
   ZIMAGE_NODE_LABELS,
+  buildCustomComfyBody,
   buildHostedBody,
-  buildPanoBody,
+  type DitEngine,
   type PanoCheckpoint,
-  type PanoEngine,
   type PanoMode,
 } from './panorama.js';
 
 /** The pre-estimate cost shown per mode (refined by the bridge estimate). */
 export const MODE_ESTIMATE_BUZZ: Record<PanoMode, number> = {
-  seamless: PANORAMA_ESTIMATE_BUZZ,
   zimage: ZIMAGE_ESTIMATE_BUZZ,
   flux2: FLUX2_ESTIMATE_BUZZ,
   qwen: QWEN_ESTIMATE_BUZZ,
   hosted: PANORAMA_ESTIMATE_BUZZ,
 };
 
-/** Which server-side recipe each customComfy mode translates to. */
-export const MODE_ENGINE: Record<Exclude<PanoMode, 'hosted'>, PanoEngine> = {
-  seamless: 'sdxl',
+/**
+ * Which server-side DiT engine each customComfy (non-hosted) mode runs. v1 is
+ * DiT-only, so every value is a `DitEngine` — no mode maps to the SDXL
+ * conv-wrap recipe. `hosted` is the plain textToImage path (no engine).
+ */
+export const MODE_ENGINE: Record<Exclude<PanoMode, 'hosted'>, DitEngine> = {
   zimage: 'zimage-turbo',
   flux2: 'flux2-klein',
   qwen: 'qwen-image',
 };
 
 const MODE_NODE_LABELS: Record<PanoMode, Record<string, string>> = {
-  seamless: PANO_NODE_LABELS,
   zimage: ZIMAGE_NODE_LABELS,
   flux2: FLUX2_NODE_LABELS,
   qwen: QWEN_NODE_LABELS,
@@ -82,8 +82,8 @@ export interface ControllerState {
 
 const INITIAL: ControllerState = {
   phase: 'idle',
-  mode: 'seamless',
-  estimatedCost: PANORAMA_ESTIMATE_BUZZ,
+  mode: 'zimage',
+  estimatedCost: ZIMAGE_ESTIMATE_BUZZ,
   actualCost: null,
   imageUrls: [],
   imageUrl: null,
@@ -136,15 +136,15 @@ export class GenerationController {
       startedAt: Date.now(),
     });
 
-    // The proposed pano360 kind rides through the same transport untyped —
-    // the bridge's published WorkflowBody union is textToImage-only today.
-    const body =
+    // Seamless/DiT modes now ride the REAL bridge as the server-owned bounded
+    // `customComfy` recipe (civitai #3228). The bounded recipe owns the graph
+    // AND the checkpoint, so no client checkpoint is threaded here (Standard/
+    // hosted textToImage still honours the picker). The `customComfy` body is
+    // now the SDK's `WorkflowBody` `customComfy` arm (SDK 0.26/0.33, PR #171).
+    const body: WorkflowBody =
       req.mode === 'hosted'
         ? buildHostedBody(req.prompt, req.seed, req.accountType, req.checkpoint)
-        : (buildPanoBody(req.prompt, req.seed, req.accountType, {
-            engine: MODE_ENGINE[req.mode],
-            ...(req.checkpoint !== undefined && { checkpoint: req.checkpoint }),
-          }) as unknown as WorkflowBody);
+        : buildCustomComfyBody(req.prompt, req.seed, req.accountType, MODE_ENGINE[req.mode]);
 
     try {
       const est = await this.bridge.estimate(body);

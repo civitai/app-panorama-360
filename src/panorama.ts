@@ -1,17 +1,40 @@
 // Pure Panorama Studio logic — bodies, Comfy graph translations, doc mapping.
 // No DOM; unit-tested in node (panorama.test.ts).
 
-import type { BlockWorkflowSnapshot, BuzzAccountType, WorkflowBody } from '@civitai/app-sdk/blocks';
+import type {
+  BlockWorkflowSnapshot,
+  BuzzAccountType,
+  WorkflowBodyCustomComfy,
+  WorkflowBodyTextToImage,
+} from '@civitai/app-sdk/blocks';
 import type { OrchWorkflowDoc } from '@civitai/comfy-run-kit';
 
 // The platform's block bridge accepts only `kind: 'textToImage'` today. The
 // `pano360` kind is this app's PROPOSED server-owned contract (bounded knobs,
 // never a raw graph); orch-host.ts stands in for the missing platform side.
 
-export type PanoMode = 'seamless' | 'zimage' | 'flux2' | 'qwen' | 'hosted';
+// v1 user-facing modes: the three DiT seamless engines ride the bounded
+// customComfy recipe, and `hosted` is the plain SDXL textToImage path (seam
+// visible, checkpoint-pickable). The old SDXL conv-wrap `seamless` mode is
+// deferred to v2 (it needs nodepack baking) — it is NOT offered in v1.
+export type PanoMode = 'zimage' | 'flux2' | 'qwen' | 'hosted';
 
-/** Which generation recipe the server-owned translation runs. */
-export type PanoEngine = 'sdxl' | 'zimage-turbo' | 'flux2-klein' | 'qwen-image';
+/**
+ * Which generation recipe the server-owned translation runs. `sdxl` is the
+ * legacy conv-wrap engine — retained only for the `dev:orch` local fallback +
+ * the legacy `pano360` body; no v1 user-facing mode maps to it.
+ */
+export const PANO_ENGINES = ['sdxl', 'zimage-turbo', 'flux2-klein', 'qwen-image'] as const;
+export type PanoEngine = (typeof PANO_ENGINES)[number];
+
+/**
+ * Runtime guard for `PanoEngine`. Needed because the SDK's `customComfy` arm
+ * types `params.engine` as the open `string` — when translating an inbound
+ * recipe body back to a `PanoBody` (dev:orch fallback) we only adopt an engine
+ * this app actually knows, and drop anything unrecognized to the recipe default.
+ */
+export const isPanoEngine = (v: unknown): v is PanoEngine =>
+  typeof v === 'string' && (PANO_ENGINES as readonly string[]).includes(v);
 
 /** A picked SDXL checkpoint (from the host's checkpoint picker). */
 export interface PanoCheckpoint {
@@ -213,6 +236,79 @@ export function buildPanoBody(
   return body;
 }
 
+// ── Real platform bridge: the bounded `customComfy` block-workflow ──────────
+// The platform now owns a bounded `kind:'customComfy'` recipe (civitai #3228):
+// the block sends only knobs, the SERVER owns the graph (a port of this app's
+// own DiT/seamless templates below). This is the body the RunController submits
+// on the REAL bridge — `pano360` + the client-side graph builders now serve
+// ONLY the optional `dev:orch` local fallback (orch-host.ts).
+//
+// The SDK's `WorkflowBody` is now a discriminated union whose `customComfy` arm
+// (`WorkflowBodyCustomComfy`) IS the server's recipe body — shipped in
+// `@civitai/app-sdk@0.26` / `@civitai/blocks-react@0.33` (civitai-app-starters
+// PR #171). We build/guard/translate that SDK type directly; the app's engine
+// enum (`RecipeEngine`) is narrower than the SDK arm's `engine?: string`, which
+// is assignable.
+
+/** The server-owned recipe key this app's block workflows target. */
+export const CUSTOM_COMFY_RECIPE = 'seamless-pano-360' as const;
+
+/**
+ * The recipe's bounded engine enum — exactly this app's DiT engines
+ * (`DitEngine`). v1 is DiT-only: every customComfy body carries one of these
+ * (the SDXL conv-wrap path is deferred to v2). See `MODE_ENGINE`.
+ */
+export type RecipeEngine = DitEngine;
+
+export interface CustomComfyParams {
+  prompt: string;
+  /** Sampler seed; omit for random. `null` is treated as omitted. */
+  seed?: number | null;
+  /** The DiT seamless engine this recipe runs (v1 always sets one). */
+  engine?: RecipeEngine;
+  /** Preferred Buzz pool; omitted = host-chosen (Auto). */
+  accountType?: BuzzAccountType;
+}
+
+/**
+ * The real-bridge body for the DiT seamless modes. `engine` is the recipe enum
+ * — one of `zimage-turbo`/`flux2-klein`/`qwen-image`, always set (v1 is
+ * DiT-only, so no engine-omitted / SDXL-conv-wrap body is ever built here). The
+ * bounded recipe owns the checkpoint server-side, so (unlike the old `pano360`
+ * body) there is no checkpoint override.
+ */
+export function buildCustomComfyBody(
+  prompt: string,
+  seed: number | undefined,
+  accountType: BuzzAccountType | undefined,
+  engine: DitEngine,
+): WorkflowBodyCustomComfy {
+  const params: CustomComfyParams = { prompt: clampPrompt(prompt), engine };
+  if (seed !== undefined) params.seed = seed;
+  if (accountType) params.accountType = accountType;
+  return { kind: 'customComfy', recipe: CUSTOM_COMFY_RECIPE, params };
+}
+
+export const isCustomComfyBody = (body: unknown): body is WorkflowBodyCustomComfy =>
+  typeof body === 'object' &&
+  body !== null &&
+  (body as { kind?: unknown }).kind === 'customComfy' &&
+  (body as { recipe?: unknown }).recipe === CUSTOM_COMFY_RECIPE;
+
+/**
+ * Translate a real-bridge `customComfy` body back into the internal `PanoBody`
+ * the dev:orch fallback's graph/template builders consume. Omitted engine →
+ * `sdxl` (the recipe default). The bounded recipe carries no checkpoint, so
+ * dev:orch uses the default SDXL checkpoint — matching the server-owned graph.
+ */
+export function customComfyToPanoBody(body: WorkflowBodyCustomComfy): PanoBody {
+  const pano: PanoBody = { kind: 'pano360', prompt: clampPrompt(body.params.prompt) };
+  if (typeof body.params.seed === 'number') pano.seed = body.params.seed;
+  if (body.params.accountType) pano.accountType = body.params.accountType;
+  if (isPanoEngine(body.params.engine)) pano.engine = body.params.engine;
+  return pano;
+}
+
 export function positivePrompt(scene: string): string {
   return TRIGGER_WORDS + clampPrompt(scene) + PROMPT_SUFFIX;
 }
@@ -232,8 +328,8 @@ export function buildHostedBody(
   seed?: number,
   accountType?: BuzzAccountType,
   checkpoint?: PanoCheckpoint,
-): WorkflowBody {
-  const body: WorkflowBody = {
+): WorkflowBodyTextToImage {
+  const body: WorkflowBodyTextToImage = {
     kind: 'textToImage',
     modelId: checkpoint?.modelId ?? CHECKPOINT_MODEL_ID,
     modelVersionId: checkpoint?.versionId ?? CHECKPOINT_VERSION_ID,

@@ -1,8 +1,14 @@
-// Dev-only ORCHESTRATOR host (`npm run dev:orch`): stands in for the missing
-// platform bridge piece by answering generation messages with REAL
-// orchestrator calls (the templates in panorama.ts). Requests go same-origin
-// to `/orch/...` — the Vite proxy injects the dev's API token SERVER-SIDE, so
-// it never reaches client JS. Submits SPEND REAL BUZZ on the token owner.
+// Dev-only ORCHESTRATOR host (`npm run dev:orch`): an OPTIONAL local fallback
+// that answers generation messages with REAL orchestrator calls (the templates
+// in panorama.ts) — for local dev WITHOUT the deployed platform bridge. The
+// real bridge now owns the bounded `customComfy` recipe (civitai #3228), so
+// this is no longer the only path the seamless modes work through.
+//
+// It accepts the real-bridge `customComfy` body (translating it back to the
+// internal `PanoBody` the templates consume) AND the legacy `pano360`/hosted
+// bodies. Requests go same-origin to `/orch/...` — the Vite proxy injects the
+// dev's API token SERVER-SIDE, so it never reaches client JS. Submits SPEND
+// REAL BUZZ on the token owner.
 
 import { mapDocToDetail, type RunDetail } from '@civitai/comfy-run-kit';
 
@@ -15,7 +21,9 @@ import {
   buildDitSeamlessTemplate,
   buildSeamlessTemplate,
   buildStandardTemplate,
+  customComfyToPanoBody,
   extractLayerAir,
+  isCustomComfyBody,
   isHostedBody,
   mapWorkflowToSnapshot,
   type HostedBodyLike,
@@ -297,16 +305,30 @@ interface BridgeMessage {
 const isPanoBody = (body: unknown): body is PanoBody =>
   typeof body === 'object' && body !== null && (body as { kind?: unknown }).kind === 'pano360';
 
+/**
+ * Reduce any body this host can serve to the internal generation shape:
+ * a real-bridge `customComfy` recipe body → `PanoBody`; a legacy `pano360`
+ * body → itself; a hosted `textToImage` body → itself. `null` = not ours
+ * (handed to the mock host).
+ */
+function normalizeGenBody(body: unknown): PanoBody | HostedBodyLike | null {
+  if (isHostedBody(body)) return body;
+  if (isCustomComfyBody(body)) return customComfyToPanoBody(body);
+  if (isPanoBody(body)) return body;
+  return null;
+}
+
 /** True when this host answers the message; false hands it to the mock host. */
 function handleIntercepted(data: BridgeMessage): boolean {
   const requestId = data.payload?.requestId;
   if (typeof requestId !== 'string') return false;
 
-  const isGenBody = (body: unknown): body is PanoBody | HostedBodyLike =>
-    isPanoBody(body) || isHostedBody(body);
-  if (data.type === 'ESTIMATE_WORKFLOW' && isGenBody(data.payload?.body)) {
-    handleEstimate(requestId, data.payload?.body as PanoBody | HostedBodyLike);
-    return true;
+  if (data.type === 'ESTIMATE_WORKFLOW') {
+    const body = normalizeGenBody(data.payload?.body);
+    if (body) {
+      handleEstimate(requestId, body);
+      return true;
+    }
   }
   if (data.type === 'OPEN_CHECKPOINT_PICKER') {
     void handleCheckpointPicker(
@@ -315,9 +337,12 @@ function handleIntercepted(data: BridgeMessage): boolean {
     );
     return true;
   }
-  if (data.type === 'SUBMIT_WORKFLOW' && isGenBody(data.payload?.body)) {
-    void handleSubmit(requestId, data.payload?.body as PanoBody | HostedBodyLike);
-    return true;
+  if (data.type === 'SUBMIT_WORKFLOW') {
+    const body = normalizeGenBody(data.payload?.body);
+    if (body) {
+      void handleSubmit(requestId, body);
+      return true;
+    }
   }
   if (data.type === 'POLL_WORKFLOW' || data.type === 'CANCEL_WORKFLOW') {
     const workflowId = data.payload?.workflowId;

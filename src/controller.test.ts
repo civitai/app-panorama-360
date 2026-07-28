@@ -67,7 +67,7 @@ describe('GenerationController', () => {
     const phases: string[] = [];
     controller.subscribe((s) => phases.push(s.phase));
 
-    const gen = controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    const gen = controller.generate({ prompt: 'a lake', mode: 'zimage' });
     await flush();
     await gen;
     expect(controller.getState().phase).toBe('polling');
@@ -85,37 +85,55 @@ describe('GenerationController', () => {
     expect(phases).toContain('submitting');
   });
 
-  it('submits a pano360 body in seamless mode and textToImage in hosted mode', async () => {
+  it('every DiT mode submits an engine-set customComfy body (never engine-omitted); hosted stays textToImage', async () => {
     const bridge = makeBridge();
     const controller = new GenerationController(bridge);
 
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
+    await controller.generate({ prompt: 'a lake', mode: 'flux2' });
+    await controller.generate({ prompt: 'a lake', mode: 'qwen' });
     await controller.generate({ prompt: 'a lake', mode: 'hosted' });
 
-    expect((bridge.submitted[0] as { kind: string }).kind).toBe('pano360');
-    expect((bridge.submitted[1] as { kind: string }).kind).toBe('textToImage');
+    // v1 is DiT-only: each seamless mode rides the bounded recipe with its DiT
+    // engine ALWAYS set — no mode emits an engine-omitted / SDXL-conv-wrap body.
+    const engines = ['zimage-turbo', 'flux2-klein', 'qwen-image'];
+    bridge.submitted.slice(0, 3).forEach((body, i) => {
+      expect(body).toMatchObject({
+        kind: 'customComfy',
+        recipe: 'seamless-pano-360',
+        params: { engine: engines[i] },
+      });
+      const params = (body as { params: { engine?: string } }).params;
+      expect(params.engine).toBeTruthy();
+      expect(params.engine).not.toBe('sdxl');
+    });
+    expect((bridge.submitted[3] as { kind: string }).kind).toBe('textToImage');
   });
 
-  it('zimage mode submits the zimage-turbo engine; checkpoint threads through others', async () => {
+  it('zimage mode submits the zimage-turbo engine; the bounded recipe owns the checkpoint', async () => {
     const bridge = makeBridge();
     const controller = new GenerationController(bridge);
     const checkpoint = { modelId: 112902, versionId: 126688 };
 
     await controller.generate({ prompt: 'a lake', mode: 'zimage', checkpoint });
-    await controller.generate({ prompt: 'a lake', mode: 'seamless', checkpoint });
     await controller.generate({ prompt: 'a lake', mode: 'hosted', checkpoint });
 
-    expect(bridge.submitted[0]).toMatchObject({ kind: 'pano360', engine: 'zimage-turbo' });
+    expect(bridge.submitted[0]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'zimage-turbo' },
+    });
+    // The customComfy recipe body has no client checkpoint — the server owns
+    // the graph + checkpoint. Only hosted (textToImage) honours the picker.
     expect(bridge.submitted[0]).not.toHaveProperty('checkpoint');
-    expect(bridge.submitted[1]).toMatchObject({ kind: 'pano360', checkpoint });
-    expect(bridge.submitted[2]).toMatchObject({
+    expect(bridge.submitted[1]).toMatchObject({
       kind: 'textToImage',
       modelId: 112902,
       modelVersionId: 126688,
     });
   });
 
-  it('flux2 and qwen modes submit their DiT engines (checkpoint dropped)', async () => {
+  it('flux2 and qwen modes submit their DiT engines on the bounded recipe', async () => {
     const bridge = makeBridge();
     const controller = new GenerationController(bridge);
     const checkpoint = { modelId: 112902, versionId: 126688 };
@@ -123,9 +141,17 @@ describe('GenerationController', () => {
     await controller.generate({ prompt: 'a lake', mode: 'flux2', checkpoint });
     await controller.generate({ prompt: 'a lake', mode: 'qwen', checkpoint });
 
-    expect(bridge.submitted[0]).toMatchObject({ kind: 'pano360', engine: 'flux2-klein' });
+    expect(bridge.submitted[0]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'flux2-klein' },
+    });
     expect(bridge.submitted[0]).not.toHaveProperty('checkpoint');
-    expect(bridge.submitted[1]).toMatchObject({ kind: 'pano360', engine: 'qwen-image' });
+    expect(bridge.submitted[1]).toMatchObject({
+      kind: 'customComfy',
+      recipe: 'seamless-pano-360',
+      params: { engine: 'qwen-image' },
+    });
     expect(bridge.submitted[1]).not.toHaveProperty('checkpoint');
   });
 
@@ -140,7 +166,7 @@ describe('GenerationController', () => {
       }),
     });
     const controller = new GenerationController(bridge);
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
 
     await vi.advanceTimersByTimeAsync(1); // first tick (setTimeout 0)
     expect(calls).toBe(1);
@@ -157,7 +183,7 @@ describe('GenerationController', () => {
   it('retries transient poll errors and gives up after the cap', async () => {
     const bridge = makeBridge({ poll: vi.fn(async () => Promise.reject(new Error('offline'))) });
     const controller = new GenerationController(bridge);
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
 
     await vi.advanceTimersByTimeAsync(1);
     for (let i = 0; i < MAX_TRANSIENT_ERRORS; i++) {
@@ -174,7 +200,7 @@ describe('GenerationController', () => {
       submit: vi.fn(async () => Promise.reject(new Error('Insufficient Buzz for this generation'))),
     });
     const controller = new GenerationController(bridge);
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
     expect(controller.getState().phase).toBe('insufficient');
   });
 
@@ -185,7 +211,7 @@ describe('GenerationController', () => {
       })),
     });
     const controller = new GenerationController(bridge);
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
     expect(controller.getState().phase).toBe('failed');
     expect(controller.getState().error).toBe('node type not found');
     await vi.advanceTimersByTimeAsync(10_000);
@@ -195,7 +221,7 @@ describe('GenerationController', () => {
   it('cancel() delegates to the run — terminal canceled with reason "user"', async () => {
     const bridge = makeBridge({ poll: vi.fn(async () => processing()) });
     const controller = new GenerationController(bridge);
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
     await vi.advanceTimersByTimeAsync(1);
 
     controller.cancel();
@@ -217,7 +243,7 @@ describe('GenerationController', () => {
       })),
     );
     const controller = new GenerationController(bridge);
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
     expect(controller.getState().phase).toBe('insufficient');
     expect(bridge.gateway.submit).not.toHaveBeenCalled();
   });
@@ -225,7 +251,7 @@ describe('GenerationController', () => {
   it('a thrown estimate is non-fatal (estimate becomes unknown, submit proceeds)', async () => {
     const bridge = makeBridge({}, vi.fn(async () => Promise.reject(new Error('timeout'))));
     const controller = new GenerationController(bridge);
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
     expect(bridge.gateway.submit).toHaveBeenCalled();
     expect(controller.getState().estimatedCost).toBeNull();
   });
@@ -236,7 +262,7 @@ describe('GenerationController', () => {
       poll: vi.fn(() => new Promise<GatewayResult>((resolve) => (resolveFirstPoll = resolve))),
     });
     const controller = new GenerationController(bridge);
-    await controller.generate({ prompt: 'a lake', mode: 'seamless' });
+    await controller.generate({ prompt: 'a lake', mode: 'zimage' });
     await vi.advanceTimersByTimeAsync(1);
     expect(bridge.gateway.poll).toHaveBeenCalledTimes(1);
 
