@@ -5,13 +5,20 @@
 
 import type { Viewer } from '@photo-sphere-viewer/core';
 
-// PSV's Viewer HARD-requires WebGL 2 and throws `PSVError: WebGL 2 is not
-// supported` from its ASYNC load (so a synchronous try/catch around
-// `new Viewer(...)` never catches it) on WebGL-1-only environments — hardware
-// acceleration off, some Linux GPU/driver setups (reproduced in Firefox AND
-// Brave, i.e. an environment WebGL-2 gap, not an iframe/sandbox one). Probe the
-// capability ONCE up front so we can fall back to the flat image deterministically
-// instead of relying on catching PSV's async throw.
+import { installStorageFallback } from '../safe-storage.js';
+
+// PSV's Viewer HARD-requires WebGL 2 and reports `WebGL 2 is not supported` on
+// WebGL-1-only environments — hardware acceleration off, some Linux GPU/driver
+// setups. PSV surfaces that through its OWN error overlay rather than throwing
+// out of the constructor, so the try/catch around `new Viewer(...)` below never
+// sees it. Probe the capability ONCE up front so we can fall back to the flat
+// image deterministically instead of relying on catching PSV's failure.
+//
+// NOTE: a WebGL-2 report from PSV is NOT proof of a WebGL-2 gap — see
+// safe-storage.ts: a `localStorage` SecurityError inside `SYSTEM.load()` is
+// caught by PSV and shown under the SAME "does not seem to support WebGL"
+// string. That one is a sandbox bug, not a GPU one, and is fixed by installing
+// the storage fallback before PSV loads.
 let webgl2Supported: boolean | undefined;
 export function isWebGL2Supported(): boolean {
   if (webgl2Supported !== undefined) return webgl2Supported;
@@ -82,8 +89,9 @@ export class PanoViewer extends HTMLElement {
       return;
     }
     // No WebGL 2 → skip PSV entirely and show the flat panorama deterministically.
-    // (PSV throws `WebGL 2 is not supported` from its async load, which the
-    // try/catch below can't reliably catch — hence the up-front short-circuit.)
+    // (PSV reports the WebGL-2 gap through its own error overlay and does NOT
+    // rethrow out of the constructor, so the try/catch below never sees it —
+    // hence the up-front short-circuit.)
     if (!isWebGL2Supported()) {
       this.#viewer?.destroy();
       this.#viewer = null;
@@ -92,6 +100,14 @@ export class PanoViewer extends HTMLElement {
     }
     try {
       if (!this.#viewer) {
+        // LOAD-BEARING, and deliberately here rather than only at boot: PSV is
+        // loaded through a DYNAMIC import, so this runs strictly before any of
+        // its module-scope or constructor code. PSV's `SYSTEM.load()` reads
+        // `localStorage` unguarded, which throws at the opaque origin of the
+        // production block sandbox; PSV catches that and mislabels it as a
+        // WebGL failure, dead-ending the viewer. Idempotent + a no-op wherever
+        // storage genuinely works.
+        installStorageFallback();
         const { Viewer } = await import('@photo-sphere-viewer/core');
         if (token !== this.#applyToken || !this.#stage) return;
         this.#viewer = new Viewer({
