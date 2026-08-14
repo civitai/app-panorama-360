@@ -1,38 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Panorama 360">
-  <!-- Panorama 360 — "Generate a world, not a picture."
-       Motif: the loop that closes. An unbroken ring read as a 360° dial — twelve thin radial
-       ticks spaced evenly INSIDE it with a clear gap, and one warm ARC lit along the band.
-
-       Three failed attempts are encoded in this shape, each removing a wrong prior:
-         · rev-2 "landscape inside the ring's band" — no prior at all; collapsed to a generic
-           landscape-in-a-circle photo icon.
-         · rev-3 outward triangles + a warm DOT — that IS the sun-rays prior; rendered a
-           weather icon, 2 of 2.
-         · v1 of this file: chunky inward triangles TOUCHING the ring's inner edge fused with
-           it into a COG. Thin ticks, held clear of the band by a 40px gap, read as a dial
-           instead — separation is what distinguishes a dial from a gear.
-       Authored rather than generated, so the ring is closed by construction — which is the
-       whole seam argument this brand rests on.
-       Palette: plate #2D9CFF · ring+ticks #A8D6FF · lit arc #FF9E5E (3 colours). -->
-  <rect width="1024" height="1024" rx="224" fill="#2D9CFF"/>
-  <circle cx="512" cy="512" r="300" fill="none" stroke="#A8D6FF" stroke-width="84"/>
-  <!-- the lit segment of horizon: a generous arc on the band, never a disc -->
-  <path d="M 616,222 A 300,300 0 0 1 790,396" fill="none" stroke="#FF9E5E" stroke-width="84"/>
-  <defs>
-    <rect id="tk" x="499" y="290" width="26" height="82" rx="13" fill="#A8D6FF"/>
-  </defs>
-  <g>
-    <use href="#tk"/>
-    <use href="#tk" transform="rotate(30 512 512)"/>
-    <use href="#tk" transform="rotate(60 512 512)"/>
-    <use href="#tk" transform="rotate(90 512 512)"/>
-    <use href="#tk" transform="rotate(120 512 512)"/>
-    <use href="#tk" transform="rotate(150 512 512)"/>
-    <use href="#tk" transform="rotate(180 512 512)"/>
-    <use href="#tk" transform="rotate(210 512 512)"/>
-    <use href="#tk" transform="rotate(240 512 512)"/>
-    <use href="#tk" transform="rotate(270 512 512)"/>
-    <use href="#tk" transform="rotate(300 512 512)"/>
-    <use href="#tk" transform="rotate(330 512 512)"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#2994FF"/>
+  <ellipse cx="512.00" cy="512.00" rx="372.00" ry="168.00" fill="#0073E6"/>
+  <ellipse cx="512.00" cy="512.00" rx="258.00" ry="92.00" fill="#2994FF"/>
+  <path d="M 162.43,454.54 A 372.00,168.00 0 0 1 326.00,366.51 Z" fill="#C2E0FF"/>
 </svg>
