@@ -3,6 +3,8 @@
   "blockId": "panorama-360",
   "version": "0.1.3",
   "name": "360° Panorama Studio",
+  "tagline": "Generate a world, not a picture.",
+  "category": "generation",
   "type": "block",
   "scopes": ["ai:write:budgeted"],
   "page": {
