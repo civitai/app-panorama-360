@@ -38,10 +38,14 @@ export function spentAccountLabel(spent: BuzzAccountType | undefined): string | 
 }
 
 /**
- * Mirror of the manifest's page.buzzBudgetPerGen — only drives client copy;
- * the real ceiling is clamped and enforced server-side at mint.
+ * Mirror of the manifest's `page.buzzBudgetPerGen`. The real ceiling is clamped
+ * and enforced server-side at mint, so this is informational only — and it is
+ * currently referenced NOWHERE in `src/` or `packages/` (the old "drives client
+ * copy" claim was false; no copy reads it). It had drifted to 120 while the
+ * manifest said 200; corrected here so a future reader is not misled. Delete it
+ * outright if it still has no consumer.
  */
-export const PAGE_BUZZ_BUDGET = 120;
+export const PAGE_BUZZ_BUDGET = 200;
 
 /** The scope the page token must carry before a generation can be submitted. */
 export const BUDGETED_SCOPE = 'ai:write:budgeted';
