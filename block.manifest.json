@@ -1,9 +1,10 @@
 {
   "$schema": "https://civitai.com/schemas/app-block/v1.json",
   "blockId": "panorama-360",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "name": "360° Panorama Studio",
   "tagline": "Generate a world, not a picture.",
+  "description": "Describe a scene and get back a 2048×1024 equirectangular panorama you can stand inside — drag it to look around without leaving the page.\n\nStart from one of six presets — alpine lake, cyberpunk street, desert dunes and more — or write your own scene. Open spaces with a clear horizon wrap best. Leave the seed blank for something new each time, or set one to return to a result you liked.\n\nFour models sit behind one Generate button. Z-Image Turbo, Flux2 Klein and Qwen Image each render the full wrap and then repaint the seam where the edges meet, so the panorama closes cleanly. Standard runs a plain SDXL generation with a checkpoint you pick yourself, and leaves that seam visible.\n\nGenerating spends your Buzz, and Civitai asks your permission the first time. The button carries the estimate before you commit — roughly 20 Buzz for Z-Image Turbo, 45 for Flux2 Klein, 150 for Qwen Image — and the seamless models bill one Buzz per GPU second when the run ends, hard-capped at 90, 150 and 180. Cancel mid-run and you pay only for the seconds used. The panoramas you make stack up in a strip under the viewer, so you can click back to an earlier one.",
   "category": "generation",
   "type": "block",
   "scopes": ["ai:write:budgeted"],
