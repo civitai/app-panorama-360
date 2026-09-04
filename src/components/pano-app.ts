@@ -10,6 +10,7 @@ import {
   type PanoRequest,
 } from '../controller.js';
 import { createBlockSession, type BlockSession, type BuzzBalance } from '../transport.js';
+import { paintTheme } from '../bootTheme.js';
 import { formatCost } from '../generation.js';
 import type { PanoCheckpoint, PanoMode } from '../panorama.js';
 import type { PanoControls } from './pano-controls.js';
@@ -160,7 +161,13 @@ export class PanoApp extends HTMLElement {
     const session = this.session!;
     const snapshot = session.getSnapshot();
 
-    document.documentElement.dataset.theme = snapshot.theme === 'light' ? 'light' : 'dark';
+    // 🔴 NOT `snapshot.theme === 'light' ? 'light' : 'dark'`, which is what this
+    // line used to be. That reads as "default to dark" and does the opposite: before
+    // BLOCK_INIT the SDK's snapshot hardcodes the literal `theme: 'light'`
+    // (EMPTY_SNAPSHOT), so the sentinel is indistinguishable from a host that really
+    // is light and EVERY pre-ready viewer resolved light — under a dark boot
+    // skeleton, a flash. `paintTheme` gates on `ready` and guesses dark otherwise.
+    document.documentElement.dataset.theme = paintTheme(snapshot.ready, snapshot.theme);
     this.#loadingEl.style.display = snapshot.ready ? 'none' : '';
     this.#controls.anon = snapshot.ready && !snapshot.viewer;
 

@@ -3,12 +3,306 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
+    <!--
+      🔴 DARK FIRST, and the order is the decision, not formatting. `color-scheme`
+      resolves left-to-right against the viewer's preference, so `light dark` — what
+      this file shipped until 0.1.7 — paints the UA canvas LIGHT for a viewer with NO
+      preference. Everywhere in this app an unknown theme now means DARK: the boot
+      styles below, src/bootTheme.ts, and the pre-`ready` stamp in
+      src/components/pano-app.ts. Keep the four in step.
+    -->
+    <meta name="color-scheme" content="dark light" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230b7285'/><circle cx='50' cy='50' r='28' fill='none' stroke='white' stroke-width='6'/><ellipse cx='50' cy='50' rx='28' ry='11' fill='none' stroke='white' stroke-width='5'/></svg>" />
     <title>360° Panorama Studio — Civitai App</title>
+    <!--
+      🔴 NO INLINE FRAGMENT READER HERE, DELIBERATELY.
+
+      The init-fragment fast path (the host appending the decoded theme to the iframe
+      URL) needs the block to ship a decoding SDK. This app pins
+      `@civitai/app-sdk@^0.26.0`, resolved at 0.26.0, whose `dist/` exports NEITHER
+      `parseBlockInitFragment` NOR `encodeBlockInitFragment` — measured 0 files of 60,
+      against positive controls that DO match in the same tree (`export`: 30 files,
+      `BLOCK_INIT`: 5). `BLOCK_INIT_FRAGMENT_ALLOWLIST` in the civitai repo says an
+      entry should be added "only once THAT block is known to ship a decoding SDK", so
+      this block cannot be allowlisted as pinned and the host will never append a
+      fragment to its iframe URL.
+
+      Hand-rolling a reader anyway would ship a duplicate of a wire format this app
+      cannot consume, with no encoder available to pin it against — untestable
+      duplication guarding a path that cannot fire. So the boot theme here is the OS
+      query with a dark default, which is exactly what `bootThemeGuess()` falls back
+      to, so this stylesheet and the app's first stamp still agree.
+
+      To enable the fast path later: bump the SDK, add the reader plus its
+      encoder-parity test, then allowlist the blockId.
+    -->
+    <!--
+      ───────────────────────────────────────────────────────────────────────────
+      BOOT SKELETON — paints before any script, and is what `bootSkeleton: true` in
+      block.manifest.json entitles the host to rely on.
+      ───────────────────────────────────────────────────────────────────────────
+
+      With `bootSkeleton: true` the full-page run host stands down its own loading
+      treatment: no opaque veil, the iframe is `opacity: 1` from mount, no reveal
+      transition. The consequence is blunt — with that key set over an EMPTY `#root`
+      the viewer sees a blank iframe for the whole load, strictly worse than not
+      opting in. So the markup in `#root` below is load-bearing.
+
+      🔴 WHY THE COLOURS ARE LITERALS HERE AND `var(--civitai-*)` EVERYWHERE ELSE.
+      src/styles.css re-sources every `--pn-*` from a `--civitai-*` token with zero
+      hardcoded colour, and those tokens arrive with `@civitai/theme/styles.css` —
+      which Vite emits as a render-blocking <link>, i.e. one round trip that has NOT
+      completed during the window this file exists to cover. An inline style cannot
+      reference a token that has not loaded, so the values below are copied from
+      `@civitai/theme`'s own blocks and src/bootTokens.test.ts asserts each against
+      the INSTALLED package.
+
+      🔴 IN LIGHT, `body == surface == surface-2` (all #fefefe) in this design system.
+      So a placeholder cannot be a surface fill or it is invisible white-on-white; it
+      is a `color-mix()` of text into surface, exactly as src/styles.css's
+      `--pn-surface-2` does, which reads in BOTH themes.
+
+      🔴 REMOVAL IS EXPLICIT HERE, AND THAT IS THE WHOLE DIFFERENCE FROM THE REACT
+      APPS IN THIS ROLLOUT. They mount with `createRoot(container).render(...)`, which
+      CLEARS the container's children before its first commit — so a skeleton inside
+      #root deletes itself and those apps ship no cleanup code. This app is vanilla
+      custom elements and src/boot.ts APPENDS (`root.appendChild(<pano-app>)`), which
+      adds a sibling and removes nothing. Left alone the skeleton would sit above the
+      real app forever. `removeBootSkeleton()` (src/bootTheme.ts) is called from
+      boot() immediately AFTER the app is in the DOM — after, so the swap happens
+      inside one task and no frame can paint an empty #root, and not at all if the
+      mount threw, which leaves the skeleton up instead of a blank iframe. Pinned
+      behaviourally by src/bootSkeleton.dom.test.ts, which drives the real boot().
+
+      The geometry below mirrors what <pano-app> paints on its FIRST build (see
+      #build() in src/components/pano-app.ts and the matching rules in
+      src/styles.css), so nothing jumps at handoff — in particular the alert-shaped
+      box is the slot the app's own "Connecting to host…" element takes over, same
+      box, same fill, same border.
+    -->
+    <style>
+      /* The app sets these in src/styles.css, which arrives with the bundle — i.e.
+         after this paint. Without them the skeleton is inset by the UA's default 8px
+         body margin and then jumps when the bundle lands. */
+      html {
+        /* The strong guarantee, independent of `color-scheme` support entirely.
+           --civitai-color-body under [data-theme='dark']. */
+        background: #1a1b1e;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      :root {
+        color-scheme: dark light;
+        font-family:
+          -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+
+        /* DARK — the base, unconditioned values, from @civitai/theme
+           [data-theme='dark']. */
+        --pn-boot-body: #1a1b1e;
+        --pn-boot-text: #c1c2c5;
+        --pn-boot-surface: #1a1b1e;
+        --pn-boot-border: #373a40;
+        --pn-boot-primary-light: rgba(34, 139, 230, 0.15);
+      }
+
+      @media (prefers-color-scheme: light) {
+        html {
+          background: #fefefe;
+        }
+
+        :root {
+          /* LIGHT — @civitai/theme `:root`. */
+          --pn-boot-body: #fefefe;
+          --pn-boot-text: #222;
+          --pn-boot-surface: #fefefe;
+          --pn-boot-border: #ced4da;
+          --pn-boot-primary-light: rgba(34, 139, 230, 0.1);
+        }
+      }
+
+      /* ---- geometry ----
+
+         Mirrors the real first paint, rule for rule:
+           shell -> `pano-app` in src/styles.css (flex, min-height 100dvh, centred,
+                    align-items flex-start, padding clamp(12px, 3vw, 28px))
+           card  -> `.pn-card` (max-width 860, radius 12, padding clamp(16,3vw,24),
+                    display grid, gap 18, 1px border, surface fill)
+           head  -> `.pn-header` (flex, gap 14, padding-bottom 16, bottom border)
+                    + `.pn-brand` (40x40, radius 8, primary-light fill)
+           alert -> `.pn-alert.pn-alert--info`, the "Connecting to host…" slot:
+                    radius 8, padding 10px 12px, 13px/1.45 text, 1px border
+           stage -> `.pn-viewer-stage` (aspect-ratio 2/1, max-height 62vh, radius 12) */
+      [data-boot-skeleton] {
+        box-sizing: border-box;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        width: 100%;
+        min-height: 100dvh;
+        padding: clamp(12px, 3vw, 28px);
+        background: var(--pn-boot-body);
+      }
+
+      [data-boot-skeleton] [data-boot-card] {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 860px;
+        padding: clamp(16px, 3vw, 24px);
+        display: grid;
+        gap: 18px;
+        border: 1px solid var(--pn-boot-border);
+        border-radius: 12px;
+        background: var(--pn-boot-surface);
+      }
+
+      [data-boot-skeleton] [data-boot-header] {
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--pn-boot-border);
+      }
+
+      /* The brand square keeps its tinted plate so the header does not change
+         colour at handoff — the real `.pn-brand` uses the same token. */
+      [data-boot-skeleton] [data-boot-brand] {
+        flex: none;
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        background: var(--pn-boot-primary-light);
+      }
+
+      [data-boot-skeleton] [data-boot-headtext] {
+        flex: 1 1 auto;
+        min-width: 0;
+        display: grid;
+        gap: 6px;
+        align-content: start;
+      }
+
+      /* `color-mix` of text into surface — a surface fill is invisible in light,
+         where body == surface. */
+      [data-boot-skeleton] [data-boot-bar] {
+        box-sizing: border-box;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--pn-boot-text) 12%, var(--pn-boot-surface));
+      }
+
+      /* The slot the app's own `#loadingEl` takes over. Same box as
+         `.pn-alert.pn-alert--info`: 4% mix (not 12%), real border, 41px tall
+         (13px text x 1.45 line-height + 20px padding + 2px border). */
+      [data-boot-skeleton] [data-boot-alert] {
+        box-sizing: border-box;
+        height: 41px;
+        border-radius: 8px;
+        border: 1px solid var(--pn-boot-border);
+        background: color-mix(in srgb, var(--pn-boot-text) 4%, var(--pn-boot-surface));
+      }
+
+      /* The 360 stage is a deliberate dark canvas in BOTH themes (a photo
+         lightbox), so this deep neutral is intentional and theme-invariant —
+         copied from `.pn-viewer-stage` in src/styles.css. */
+      [data-boot-skeleton] [data-boot-stage] {
+        box-sizing: border-box;
+        width: 100%;
+        aspect-ratio: 2 / 1;
+        max-height: 62vh;
+        border-radius: 12px;
+        border: 1px solid var(--pn-boot-border);
+        background: #0a1018;
+      }
+
+      [data-boot-skeleton] [data-boot-field] {
+        display: grid;
+        gap: 6px;
+      }
+
+      [data-boot-skeleton] [data-boot-row] {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      [data-boot-skeleton] [data-boot-pill] {
+        box-sizing: border-box;
+        height: 34px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--pn-boot-text) 12%, var(--pn-boot-surface));
+      }
+
+      /* A slow, low-amplitude breath so the boot state reads as "loading" rather
+         than "this is the content". The stage is left out: it is the same deep
+         canvas the real viewer paints, so pulsing it would be a jump. */
+      @keyframes pn-boot-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.62;
+        }
+      }
+
+      [data-boot-skeleton] [data-boot-bar],
+      [data-boot-skeleton] [data-boot-alert],
+      [data-boot-skeleton] [data-boot-pill] {
+        animation: pn-boot-pulse 1.6s ease-in-out infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        [data-boot-skeleton] [data-boot-bar],
+        [data-boot-skeleton] [data-boot-alert],
+        [data-boot-skeleton] [data-boot-pill] {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        `data-boot-skeleton` is an ATTRIBUTE, not a class: classes are mangled by
+        CSS-modules / purge, an attribute survives the bundler and is
+        deterministically greppable out of the built HTML. `aria-hidden` because the
+        host already publishes `aria-busy` on the iframe element while this is on
+        screen — an in-frame live region would announce a second time.
+
+        It MUST stay a descendant of #root: `removeBootSkeleton()` scopes its query
+        to #root, and the platform's own emptiness check is about #root, so a
+        skeleton painted as a SIBLING is both unremovable by us and invisible to the
+        gate — it would stay on screen above the app forever.
+      -->
+      <div data-boot-skeleton aria-hidden="true">
+        <div data-boot-card>
+          <div data-boot-header>
+            <div data-boot-brand></div>
+            <div data-boot-headtext>
+              <div data-boot-bar style="height: 24px; width: 220px"></div>
+              <div data-boot-bar style="height: 17px; width: 70%"></div>
+            </div>
+          </div>
+          <div data-boot-alert></div>
+          <div data-boot-stage></div>
+          <div data-boot-field>
+            <div data-boot-bar style="height: 14px; width: 110px"></div>
+            <div data-boot-bar style="height: 76px"></div>
+          </div>
+          <div data-boot-field>
+            <div data-boot-bar style="height: 14px; width: 96px"></div>
+            <div data-boot-row>
+              <span data-boot-pill style="width: 104px"></span>
+              <span data-boot-pill style="width: 104px"></span>
+              <span data-boot-pill style="width: 128px"></span>
+            </div>
+          </div>
+          <div data-boot-bar style="height: 42px"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
