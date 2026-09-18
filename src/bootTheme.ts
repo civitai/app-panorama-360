@@ -32,7 +32,8 @@ export type BootTheme = 'dark' | 'light';
  * fragment is ever appended. 🔴 AND ALLOWLISTING ALONE WOULD NOT CHANGE THAT: neither
  * `@civitai/app-sdk@0.42.0` nor `@civitai/blocks-react@0.51.0` writes
  * `data-civitai-boot-theme` (0 files across both), so this branch stays dead until
- * THIS app ships an inline pre-paint reader that stamps it. The OS query below is what
+ * THIS app ships an inline pre-paint reader that stamps it AND the blockId is
+ * allowlisted host-side — both, in that order; neither alone wakes it. The OS query below is what
  * actually answers, matching the stylesheet's `@media (prefers-color-scheme: light)`
  * exactly. The branch is kept so that adding that reader needs no change here.
  *

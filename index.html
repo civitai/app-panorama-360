@@ -32,15 +32,23 @@
       bump.
       What still gates it is the OTHER half: `BLOCK_INIT_FRAGMENT_ALLOWLIST` in the
       civitai repo adds an entry "only once THAT block is known to ship a decoding SDK",
-      and this blockId is not allowlisted — so the host still never appends a fragment
-      to this iframe's URL, and an inline reader would still guard a path that cannot
-      fire.
+      and this blockId is not allowlisted — so the host does not append a fragment to
+      this iframe's URL today. 🔴 Read that as the ORDER OF WORK, not as a reason to
+      skip the reader: the host admits a block once it already ships one, so the reader
+      comes first and the allowlist request second. The closing paragraph says the same.
 
-      Hand-rolling a reader anyway would ship a duplicate of a wire format this app
-      cannot consume, with no encoder available to pin it against — untestable
-      duplication guarding a path that cannot fire. So the boot theme here is the OS
-      query with a dark default, which is exactly what `bootThemeGuess()` falls back
-      to, so this stylesheet and the app's first stamp still agree.
+      🔴 THE OLD OBJECTION TO WRITING ONE IS ALSO DEAD, and it contradicted the
+      paragraph above it for one round. It said a reader would duplicate "a wire format
+      this app cannot consume, with no encoder available to pin it against — untestable
+      duplication". Both halves are false at 0.42.0: `encodeBlockInitFragment` IS
+      exported from `@civitai/app-sdk/blocks` (`dist/blocks/index.d.ts:18`, beside
+      `parseBlockInitFragment` and `stripBlockInitFragment`), and this app already
+      imports that very subpath (`src/transport.ts`, `src/controller.ts`). So a reader
+      here IS pinnable — encode a fragment with the SDK's own encoder, set the hash,
+      assert the attribute — which is what the host's already-admitted blocks do.
+      Until one is written the boot theme here is the OS query with a dark default,
+      which is exactly what `bootThemeGuess()` falls back to, so this stylesheet and
+      the app's first stamp still agree.
 
       To enable the fast path — 🔴 AND THE DEPENDENCY RUNS THE OPPOSITE WAY TO WHAT AN
       EARLIER VERSION OF THIS PARAGRAPH SAID. It claimed allowlisting was all that
