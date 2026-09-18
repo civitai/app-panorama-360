@@ -4,7 +4,7 @@
 import type {
   BlockWorkflowSnapshot,
   BuzzAccountType,
-  WorkflowBodyCustomComfy,
+  WorkflowBodyCustomComfyRecipe,
   WorkflowBodyTextToImage,
 } from '@civitai/app-sdk/blocks';
 import type { OrchWorkflowDoc } from '@civitai/comfy-run-kit';
@@ -244,7 +244,7 @@ export function buildPanoBody(
 // ONLY the optional `dev:orch` local fallback (orch-host.ts).
 //
 // The SDK's `WorkflowBody` is now a discriminated union whose `customComfy` arm
-// (`WorkflowBodyCustomComfy`) IS the server's recipe body — shipped in
+// (`WorkflowBodyCustomComfyRecipe`) IS the server's recipe body — shipped in
 // `@civitai/app-sdk@0.26` / `@civitai/blocks-react@0.33` (civitai-app-starters
 // PR #171). We build/guard/translate that SDK type directly; the app's engine
 // enum (`RecipeEngine`) is narrower than the SDK arm's `engine?: string`, which
@@ -282,14 +282,16 @@ export function buildCustomComfyBody(
   seed: number | undefined,
   accountType: BuzzAccountType | undefined,
   engine: DitEngine,
-): WorkflowBodyCustomComfy {
+): WorkflowBodyCustomComfyRecipe {
   const params: CustomComfyParams = { prompt: clampPrompt(prompt), engine };
   if (seed !== undefined) params.seed = seed;
   if (accountType) params.accountType = accountType;
   return { kind: 'customComfy', recipe: CUSTOM_COMFY_RECIPE, params };
 }
 
-export const isCustomComfyBody = (body: unknown): body is WorkflowBodyCustomComfy =>
+export const isCustomComfyBody = (
+  body: unknown,
+): body is WorkflowBodyCustomComfyRecipe =>
   typeof body === 'object' &&
   body !== null &&
   (body as { kind?: unknown }).kind === 'customComfy' &&
@@ -301,7 +303,9 @@ export const isCustomComfyBody = (body: unknown): body is WorkflowBodyCustomComf
  * `sdxl` (the recipe default). The bounded recipe carries no checkpoint, so
  * dev:orch uses the default SDXL checkpoint — matching the server-owned graph.
  */
-export function customComfyToPanoBody(body: WorkflowBodyCustomComfy): PanoBody {
+export function customComfyToPanoBody(
+  body: WorkflowBodyCustomComfyRecipe,
+): PanoBody {
   const pano: PanoBody = { kind: 'pano360', prompt: clampPrompt(body.params.prompt) };
   if (typeof body.params.seed === 'number') pano.seed = body.params.seed;
   if (body.params.accountType) pano.accountType = body.params.accountType;
