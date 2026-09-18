@@ -25,11 +25,17 @@ export type BootTheme = 'dark' | 'light';
  * moment the host's veil comes down. Never branch on `theme` in a `!ready` path;
  * use `paintTheme()` instead.
  *
- * 🔴 THE ATTRIBUTE READ IS FORWARD-COMPATIBLE, NOT LOAD-BEARING HERE. This app's
- * pinned SDK cannot decode the init fragment, so index.html ships no inline reader
- * and nothing sets `data-civitai-boot-theme` today — the OS query below is what
+ * 🔴 THE ATTRIBUTE READ IS FORWARD-COMPATIBLE, NOT LOAD-BEARING HERE. The pinned SDK
+ * CAN decode the init fragment as of 0.42.0 (an earlier version of this comment said
+ * it could not, which was true at 0.26.0 and is not now); what still gates the path is
+ * that this blockId is not in the host's `BLOCK_INIT_FRAGMENT_ALLOWLIST`, so no
+ * fragment is ever appended. 🔴 AND ALLOWLISTING ALONE WOULD NOT CHANGE THAT: neither
+ * `@civitai/app-sdk@0.42.0` nor `@civitai/blocks-react@0.51.0` writes
+ * `data-civitai-boot-theme` (0 files across both), so this branch stays dead until
+ * THIS app ships an inline pre-paint reader that stamps it AND the blockId is
+ * allowlisted host-side — both, in that order; neither alone wakes it. The OS query below is what
  * actually answers, matching the stylesheet's `@media (prefers-color-scheme: light)`
- * exactly. The branch is kept so that adding the reader later needs no change here.
+ * exactly. The branch is kept so that adding that reader needs no change here.
  *
  * Unknown means DARK, here and in index.html and in `<meta name="color-scheme">`.
  */

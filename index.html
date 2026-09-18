@@ -18,23 +18,50 @@
       🔴 NO INLINE FRAGMENT READER HERE, DELIBERATELY.
 
       The init-fragment fast path (the host appending the decoded theme to the iframe
-      URL) needs the block to ship a decoding SDK. This app pins
-      `@civitai/app-sdk@^0.26.0`, resolved at 0.26.0, whose `dist/` exports NEITHER
-      `parseBlockInitFragment` NOR `encodeBlockInitFragment` — measured 0 files of 60,
-      against positive controls that DO match in the same tree (`export`: 30 files,
-      `BLOCK_INIT`: 5). `BLOCK_INIT_FRAGMENT_ALLOWLIST` in the civitai repo says an
-      entry should be added "only once THAT block is known to ship a decoding SDK", so
-      this block cannot be allowlisted as pinned and the host will never append a
-      fragment to its iframe URL.
+      URL) needs the block to ship a decoding SDK.
 
-      Hand-rolling a reader anyway would ship a duplicate of a wire format this app
-      cannot consume, with no encoder available to pin it against — untestable
-      duplication guarding a path that cannot fire. So the boot theme here is the OS
-      query with a dark default, which is exactly what `bootThemeGuess()` falls back
-      to, so this stylesheet and the app's first stamp still agree.
+      🔴 THE ORIGINAL REASON HERE IS NOW FALSE, AND THE CONCLUSION STILL HOLDS FOR A
+      DIFFERENT REASON — do not restore the old wording. This comment used to say the
+      pinned SDK exports NEITHER `parseBlockInitFragment` NOR `encodeBlockInitFragment`,
+      measured 0 files of 60 at 0.26.0. Re-measured at 0.42.0: 2 files export them
+      (`dist/blocks/initFragment.js`, re-exported from `dist/blocks/index.js`), and
+      `IframeTransport`'s constructor CALLS `parseBlockInitFragment` itself — 🔴 that
+      transport is in `@civitai/blocks-react` (`dist/internal/iframeTransport.js`), NOT
+      in the SDK: `IframeTransport` appears in 0 of the SDK's files and 25 of
+      blocks-react's. So the DECODING half of the precondition is satisfied as of this
+      bump.
+      What still gates it is the OTHER half: `BLOCK_INIT_FRAGMENT_ALLOWLIST` in the
+      civitai repo adds an entry "only once THAT block is known to ship a decoding SDK",
+      and this blockId is not allowlisted — so the host does not append a fragment to
+      this iframe's URL today. 🔴 Read that as the ORDER OF WORK, not as a reason to
+      skip the reader: the host admits a block once it already ships one, so the reader
+      comes first and the allowlist request second. The closing paragraph says the same.
 
-      To enable the fast path later: bump the SDK, add the reader plus its
-      encoder-parity test, then allowlist the blockId.
+      🔴 THE OLD OBJECTION TO WRITING ONE IS ALSO DEAD, and it contradicted the
+      paragraph above it for one round. It said a reader would duplicate "a wire format
+      this app cannot consume, with no encoder available to pin it against — untestable
+      duplication". Both halves are false at 0.42.0: `encodeBlockInitFragment` IS
+      exported from `@civitai/app-sdk/blocks` (`dist/blocks/index.d.ts:18`, beside
+      `parseBlockInitFragment` and `stripBlockInitFragment`), and this app already
+      imports that very subpath (`src/transport.ts`, `src/controller.ts`). So a reader
+      here IS pinnable — encode a fragment with the SDK's own encoder, set the hash,
+      assert the attribute — which is what the host's already-admitted blocks do.
+      Until one is written the boot theme here is the OS query with a dark default,
+      which is exactly what `bootThemeGuess()` falls back to, so this stylesheet and
+      the app's first stamp still agree.
+
+      To enable the fast path — 🔴 AND THE DEPENDENCY RUNS THE OPPOSITE WAY TO WHAT AN
+      EARLIER VERSION OF THIS PARAGRAPH SAID. It claimed allowlisting was all that
+      remained and "no hand-rolled reader is needed here at all". That is false, and the
+      measurement that settles it does not depend on how the host words its bar:
+      NEITHER `@civitai/app-sdk@0.42.0` NOR `@civitai/blocks-react@0.51.0` writes
+      `data-civitai-boot-theme` anywhere — 0 files across both — and that attribute is
+      the ONLY thing `bootThemeGuess()` reads before paint. A decoded fragment lands in
+      the transport snapshot, which does not exist yet at first paint. So allowlisting
+      alone would change nothing a viewer sees.
+      The reader is therefore a PREREQUISITE, not something the allowlist makes moot:
+      ship an inline pre-paint reader here that stamps `data-civitai-boot-theme`, and
+      only then ask for the blockId to be allowlisted.
     -->
     <!--
       ───────────────────────────────────────────────────────────────────────────

@@ -117,9 +117,22 @@ describe('boot token parity with @civitai/theme', () => {
     );
 
     // 🔴 NO `data-civitai-boot-theme` OVERRIDE BLOCKS IN THIS APP, deliberately —
-    // its pinned SDK cannot decode the init fragment, so index.html ships no inline
-    // reader and nothing ever sets that attribute. Asserting override rules here
-    // would pin markup that does not exist. See the note at the top of index.html.
+    // index.html ships no inline fragment reader, so nothing ever sets that attribute
+    // and asserting override rules here would pin markup that does not exist.
+    //
+    // 🔴 THE REASON IS NOT THE ONE THIS COMMENT USED TO GIVE. It said "its pinned SDK
+    // cannot decode the init fragment" — true at 0.26.0, FALSE since the 0.42.0 bump,
+    // and it survived two audit rounds here after the same sentence was corrected in
+    // index.html and src/bootTheme.ts. What actually holds is that no reader has been
+    // written yet. 🔴 SO THIS ASSERTION IS A SNAPSHOT, NOT AN INVARIANT: whoever ships
+    // the reader and its CSS override blocks SHOULD delete it, not work around it.
+    // 🔴 AND MUST EXTEND `MIRRORED` TO THE NEW REGION IN THE SAME CHANGE. Deleting
+    // this line alone makes the suite green while leaving the override block's
+    // literals asserted by NOTHING — measured: with the assertion gone, mutating
+    // those literals to `#ff00ff` still reports 225/225. `MIRRORED` loops the base
+    // `:root` and the media-query `:root` only, and this file's contract is every
+    // literal checked against the installed @civitai/theme PER REGION.
+    // See the note at the top of index.html for the order of work.
     expect(BOOT_CSS).not.toContain('data-civitai-boot-theme');
   });
 
