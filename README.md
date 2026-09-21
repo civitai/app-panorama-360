@@ -147,7 +147,7 @@ dev-stack's `.mcp.json` — generations bill **that token owner's account**.
 | `src/generation.ts` | Phases, Buzz-error classification, formatting |
 | `src/components/` | `<pano-app>` shell, `<pano-controls>`, `<pano-status>` (app alerts + embedded `<civitai-comfy-run>`), `<pano-viewer>` (PSV lifecycle + `<img>` CORS fallback), `<pano-gallery>` |
 | `src/harness.ts`, `src/orch-host.ts`, `src/dev-transport.ts` | Dev harness (vanilla); orch-host intercepts SUBMIT/POLL/**CANCEL**/BALANCE and attaches the `RunDetail` enrichment |
-| `block.manifest.json` | Page app manifest (`buzzBudgetPerGen: 120`, scope `ai:write:budgeted`) |
+| `block.manifest.json` | Page app manifest (`buzzBudgetPerGen: 1000` — a safety ceiling, not an estimate, scope `ai:write:budgeted`) |
 
 ## Known platform items
 
