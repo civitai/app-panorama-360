@@ -39,11 +39,9 @@ const INTERCEPTED = new Set([
   'POLL_WORKFLOW',
   'CANCEL_WORKFLOW',
   'GET_BUZZ_BALANCE',
-  'OPEN_CHECKPOINT_PICKER',
+  // OPEN_CHECKPOINT_PICKER is deliberately NOT intercepted — see the note above
+  // `handleIntercepted`; the mock host answers it from its canned SDXL pick.
 ]);
-
-/** The overlay's catalog filter wants a baseModel NAME, not an ecosystem key. */
-const BASE_MODEL_GROUP_TO_NAME: Record<string, string> = { SDXL: 'SDXL 1.0' };
 
 const ORCH_BASE = '/orch/v2/consumer/workflows';
 
@@ -255,35 +253,27 @@ function handleEstimate(requestId: string, body: PanoBody | HostedBodyLike): voi
   });
 }
 
-async function handleCheckpointPicker(
-  requestId: string,
-  payload: { baseModelGroup?: string; currentVersionId?: number },
-): Promise<void> {
-  const reply = (selected?: unknown) =>
-    dispatchToBlock({
-      type: 'CHECKPOINT_PICKER_RESULT',
-      payload: { requestId, ...(selected !== undefined && selected !== null ? { selected } : {}) },
-    });
-  try {
-    // Public catalog via the `/api` proxy, no token. A pick is discovery-only;
-    // a real bridge re-validates the id at submit.
-    const { openPickerOverlay } = await import('@civitai/blocks-react/testing');
-    const group = payload.baseModelGroup;
-    openPickerOverlay({
-      type: 'Checkpoint',
-      baseUrl: '',
-      token: null,
-      fetchImpl: (...args) => fetch(...args),
-      ...(group !== undefined && { baseModelGroup: BASE_MODEL_GROUP_TO_NAME[group] ?? group }),
-      ...(payload.currentVersionId !== undefined && {
-        currentVersionId: payload.currentVersionId,
-      }),
-      onResolve: (selection) => reply(selection?.selected),
-    });
-  } catch {
-    reply();
-  }
-}
+// `handleCheckpointPicker` used to live here and open the real public catalog in
+// an overlay, via `openPickerOverlay` from `@civitai/blocks-react/testing`.
+// blocks-react 0.55.0 un-exported that symbol: it was one of ~25 undocumented
+// re-exports the `/testing` barrel shed when its surface became a pinned ledger,
+// and — unlike `createLiveHost`, which merely moved to `/live` — it has NO
+// published replacement on any subpath (`.`, `./ui`, `./live`, `./testing`). The
+// package README says so explicitly and tells consumers not to reach into
+// `dist/internal/`; the `exports` map would refuse the deep import anyway.
+//
+// So this host no longer intercepts OPEN_CHECKPOINT_PICKER at all — it is absent
+// from INTERCEPTED above, which makes `handleIntercepted` decline it and hands it
+// to the MOCK host underneath. That host answers the message from its
+// `cannedPicks.Checkpoint`, and `harness.ts` already seeds that with DreamShaper
+// XL (SDXL 1.0) — the one base model the Standard arm accepts. Net effect on
+// `dev:orch`: picking a checkpoint still works and still returns an SDXL
+// checkpoint, but it resolves instantly to that fixed pick instead of letting you
+// browse the live catalog. Everything that spends real Buzz (ESTIMATE / SUBMIT /
+// POLL / CANCEL) is untouched, and production never loaded this file.
+//
+// To get catalog browsing back, ask upstream for a published imperative picker
+// (the README's own instruction) rather than restoring a private import.
 
 function handleBalance(requestId: string): void {
   // The orchestrator token can't read the viewer's wallet, and the mock host's
@@ -329,13 +319,6 @@ function handleIntercepted(data: BridgeMessage): boolean {
       handleEstimate(requestId, body);
       return true;
     }
-  }
-  if (data.type === 'OPEN_CHECKPOINT_PICKER') {
-    void handleCheckpointPicker(
-      requestId,
-      data.payload as { baseModelGroup?: string; currentVersionId?: number },
-    );
-    return true;
   }
   if (data.type === 'SUBMIT_WORKFLOW') {
     const body = normalizeGenBody(data.payload?.body);

@@ -81,9 +81,12 @@ canonical AIR) — `zimage:lora` fails resource resolution on the workers.
 The Model row shows **only in Standard (hosted) mode** — the bounded DiT recipe
 owns its models server-side, so a checkpoint pick does nothing on those paths.
 It opens the host's **checkpoint picker** (`OPEN_CHECKPOINT_PICKER`, filtered to
-the SDXL family): civitai.com opens its native model-select modal, the mock host
-answers with a canned pick, and `dev:orch` opens the SDK's searchable catalog
-overlay through the vite `/api` proxy. A pick is discovery-only — the server
+the SDXL family): civitai.com opens its native model-select modal, and both
+harness modes answer with the mock host's canned SDXL pick. (`dev:orch` used to
+open the SDK's searchable catalog overlay instead; blocks-react 0.55.0 un-exported
+`openPickerOverlay` with no published replacement, so `dev:orch` now lets the
+picker message fall through to the mock host like `mock` does — see the note in
+`src/orch-host.ts`.) A pick is discovery-only — the server
 re-validates the id at submit — and the picked checkpoint rides
 `modelId`/`modelVersionId` into the hosted `textToImage` body. A checkpoint that
 isn't warm on the worker downloads during "Preparing" (unbilled; the run card
