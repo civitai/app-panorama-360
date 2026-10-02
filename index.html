@@ -23,13 +23,13 @@
       🔴 THE ORIGINAL REASON HERE IS NOW FALSE, AND THE CONCLUSION STILL HOLDS FOR A
       DIFFERENT REASON — do not restore the old wording. This comment used to say the
       pinned SDK exports NEITHER `parseBlockInitFragment` NOR `encodeBlockInitFragment`,
-      measured 0 files of 60 at 0.26.0. Re-measured at 0.49.0 (unchanged from 0.42.0):
+      measured 0 files of 60 at 0.26.0. Re-measured at 0.55.0 (unchanged from 0.42.0):
       2 files export them
       (`dist/blocks/initFragment.js`, re-exported from `dist/blocks/index.js`), and
       `IframeTransport`'s constructor CALLS `parseBlockInitFragment` itself — 🔴 that
       transport is in `@civitai/blocks-react` (`dist/transport/iframeTransport.js` —
       it moved out of `dist/internal/` in the 0.62.0 bump), NOT
-      in the SDK: `IframeTransport` appears in 0 of the SDK's files and 25 of
+      in the SDK: `IframeTransport` appears in 0 of the SDK's files and 26 of
       blocks-react's. So the DECODING half of the precondition is satisfied as of this
       bump.
       What still gates it is the OTHER half: `BLOCK_INIT_FRAGMENT_ALLOWLIST` in the
@@ -43,7 +43,7 @@
       paragraph above it for one round. It said a reader would duplicate "a wire format
       this app cannot consume, with no encoder available to pin it against — untestable
       duplication". Both halves are false at 0.42.0: `encodeBlockInitFragment` IS
-      exported from `@civitai/app-sdk/blocks` (`dist/blocks/index.d.ts:18`, beside
+      exported from `@civitai/app-sdk/blocks` (`dist/blocks/index.d.ts:65`, beside
       `parseBlockInitFragment` and `stripBlockInitFragment`), and this app already
       imports that very subpath (`src/transport.ts`, `src/controller.ts`). So a reader
       here IS pinnable — encode a fragment with the SDK's own encoder, set the hash,
@@ -56,8 +56,8 @@
       EARLIER VERSION OF THIS PARAGRAPH SAID. It claimed allowlisting was all that
       remained and "no hand-rolled reader is needed here at all". That is false, and the
       measurement that settles it does not depend on how the host words its bar:
-      NEITHER `@civitai/app-sdk@0.49.0` NOR `@civitai/blocks-react@0.62.0` writes
-      `data-civitai-boot-theme` anywhere — 0 files of 238 across both, re-measured at
+      NEITHER `@civitai/app-sdk@0.55.0` NOR `@civitai/blocks-react@0.63.0` writes
+      `data-civitai-boot-theme` anywhere — 0 files of 255 across both, re-measured at
       this bump against a positive control — and that attribute is
       the ONLY thing `bootThemeGuess()` reads before paint. A decoded fragment lands in
       the transport snapshot, which does not exist yet at first paint. So allowlisting
