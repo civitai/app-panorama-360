@@ -14,7 +14,8 @@ export type BootTheme = 'dark' | 'light';
  *
  * 🔴 WHY THIS EXISTS. `session.getSnapshot().theme` is a SENTINEL before `ready`,
  * not a signal: the SDK's pre-init snapshot hardcodes `theme: 'light'`
- * (@civitai/blocks-react `dist/internal/transport.js`, EMPTY_SNAPSHOT) and the
+ * (@civitai/blocks-react `dist/transport/transport.js`, EMPTY_SNAPSHOT — the file
+ * moved out of `dist/internal/` in the 0.62.0 bump; the sentinel is unchanged) and the
  * transport returns it unchanged. So the old stamp in <pano-app>,
  *
  *     dataset.theme = snapshot.theme === 'light' ? 'light' : 'dark'
@@ -30,8 +31,10 @@ export type BootTheme = 'dark' | 'light';
  * it could not, which was true at 0.26.0 and is not now); what still gates the path is
  * that this blockId is not in the host's `BLOCK_INIT_FRAGMENT_ALLOWLIST`, so no
  * fragment is ever appended. 🔴 AND ALLOWLISTING ALONE WOULD NOT CHANGE THAT: neither
- * `@civitai/app-sdk@0.42.0` nor `@civitai/blocks-react@0.51.0` writes
- * `data-civitai-boot-theme` (0 files across both), so this branch stays dead until
+ * `@civitai/app-sdk@0.49.0` nor `@civitai/blocks-react@0.62.0` writes
+ * `data-civitai-boot-theme` (re-measured at this bump: 0 files of 238 across both,
+ * against a positive control that finds `BLOCK_INIT` in 5 and 24 files
+ * respectively), so this branch stays dead until
  * THIS app ships an inline pre-paint reader that stamps it AND the blockId is
  * allowlisted host-side — both, in that order; neither alone wakes it. The OS query below is what
  * actually answers, matching the stylesheet's `@media (prefers-color-scheme: light)`

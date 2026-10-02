@@ -7,7 +7,12 @@
 // host runs.
 
 import { getTransport } from '@civitai/blocks-react';
-import { createLiveHost, resetTransport } from '@civitai/blocks-react/testing';
+import { resetTransport } from '@civitai/blocks-react/testing';
+// `createLiveHost` moved OFF `/testing` in blocks-react 0.55.0 and onto its own
+// subpath: `/testing` is now all-mock by construction, so the one export that
+// spends the token holder's real Buzz cannot sit one autocomplete entry away
+// from `createMockHost`. Same function, same options — only the path changed.
+import { createLiveHost } from '@civitai/blocks-react/live';
 
 /**
  * `'mock'` — SDK mock host, no network, no Buzz. `'orch'` — mock host with the
