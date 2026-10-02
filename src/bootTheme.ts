@@ -31,9 +31,9 @@ export type BootTheme = 'dark' | 'light';
  * it could not, which was true at 0.26.0 and is not now); what still gates the path is
  * that this blockId is not in the host's `BLOCK_INIT_FRAGMENT_ALLOWLIST`, so no
  * fragment is ever appended. 🔴 AND ALLOWLISTING ALONE WOULD NOT CHANGE THAT: neither
- * `@civitai/app-sdk@0.49.0` nor `@civitai/blocks-react@0.62.0` writes
- * `data-civitai-boot-theme` (re-measured at this bump: 0 files of 238 across both,
- * against a positive control that finds `BLOCK_INIT` in 5 and 24 files
+ * `@civitai/app-sdk@0.55.0` nor `@civitai/blocks-react@0.63.0` writes
+ * `data-civitai-boot-theme` (re-measured at this bump: 0 files of 255 across both,
+ * against a positive control that finds `BLOCK_INIT` in 12 and 44 files
  * respectively), so this branch stays dead until
  * THIS app ships an inline pre-paint reader that stamps it AND the blockId is
  * allowlisted host-side — both, in that order; neither alone wakes it. The OS query below is what
