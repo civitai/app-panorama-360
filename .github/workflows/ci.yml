@@ -1,13 +1,16 @@
 name: CI
 
+# push is main only: a commit on a PR branch is already checked by its
+# pull_request run, so a push trigger on every branch ran CI twice for it.
+# A branch pushed without an open PR gets no CI until a PR is opened.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 # A newer push to the same ref cancels the run still going for the older one
 # (runner savings, same design as civitai/civitai#6718 / #6728): on a PR the
-# ref is refs/pull/N/merge, on a branch push it is the branch. There is no
+# ref is refs/pull/N/merge, on a push it is refs/heads/main. There is no
 # deploy here, so a cancelled intermediate run loses nothing; the newest run
 # checks a tree that contains every older commit.
 concurrency:
