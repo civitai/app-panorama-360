@@ -1,9 +1,38 @@
 name: CI
 
+# Runner savings, same design as civitai/civitai#6718 and #6728.
+#
+# Docs-only changes skip this workflow. `paths` rather than `paths-ignore`
+# because only `paths` documents the re-include rule (patterns evaluate in
+# order). Excluded: docs/** (design screenshots) and Markdown anywhere. Nothing
+# the build or the tests run reads them: `npm run build` is tsc + vite, `npm
+# test` is vitest over source, and no source file references a .md path or
+# docs/. If a test or the build ever starts reading one, re-include it below
+# the negations. A change that touches any other file still runs the job.
+#
+# Nothing hangs when this skips: `main` has no branch protection, so no PR
+# waits on a check that never starts. If this job ever becomes a required
+# check, a docs-only PR would wait on it forever and the filter must go.
 on:
   push:
     branches: ['**']
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**.md'
   pull_request:
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**.md'
+
+# A newer push to the same ref cancels the run still going for the older one:
+# on a PR the ref is refs/pull/N/merge, on a branch push it is the branch.
+# There is no deploy here, so a cancelled intermediate run loses nothing; the
+# newest run checks a tree that contains every older commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
